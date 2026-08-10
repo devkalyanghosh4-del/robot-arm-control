@@ -319,74 +319,206 @@ footer{
 
 /* RESPONSIVE */
 
-@media(max-width:1200px){
+/* =========================================
+   TABLET / PHONE LANDSCAPE
+   Keep desktop-style control panel
+========================================= */
 
-    main{
-        grid-template-columns:
-            210px
-            1fr
-            1fr;
-    }
-
-    .right{
-        grid-column:1/-1;
-        flex-direction:row;
-        justify-content:center;
-        flex-wrap:wrap;
-    }
-
-    .right .btn{
-        width:210px;
-    }
-}
-
-@media(max-width:850px){
+@media (max-width:1200px) and (orientation:landscape){
 
     body{
         padding:0;
+        overflow-x:auto;
+        background:#222;
     }
 
     #app{
+        width:1200px;
+        min-height:100vh;
+        margin:0 auto;
+        border-radius:0;
+        transform-origin:top left;
+    }
+
+    header{
+        height:70px;
+        grid-template-columns:220px 1fr 180px;
+        padding:10px 20px;
+    }
+
+    .panel-title{
+        font-size:22px;
+        letter-spacing:3px;
+    }
+
+    main{
+        grid-template-columns:
+            190px
+            390px
+            430px
+            190px;
+
+        gap:14px;
+        padding:16px;
+        min-height:590px;
+    }
+
+    .side{
+        gap:18px;
+    }
+
+    .btn{
+        min-height:56px;
+        padding:10px;
+        font-size:13px;
+    }
+
+    #viewerCard{
+        height:520px;
+    }
+
+    #joints{
+        gap:14px;
+    }
+
+    .jointName{
+        font-size:11px;
+        margin-bottom:4px;
+    }
+
+    .shell{
+        height:42px;
+        grid-template-columns:75px 1fr;
+    }
+
+    .value{
+        font-size:13px;
+        padding-left:8px;
+    }
+
+    .range{
+        padding:0 8px;
+    }
+
+    .delayBox{
+        height:42px;
+        grid-template-columns:85px 1fr;
+    }
+
+    .delayBox input{
+        font-size:13px;
+    }
+
+    .delayBox span{
+        font-size:12px;
+        padding-left:8px;
+    }
+
+    footer{
+        height:55px;
+        font-size:10px;
+        letter-spacing:8px;
+    }
+}
+
+
+/* =========================================
+   PHONE LANDSCAPE
+   Scale desktop interface to fit screen
+========================================= */
+
+@media (max-width:900px) and (orientation:landscape){
+
+    body{
+        padding:0;
+        overflow:hidden;
+    }
+
+    #app{
+        width:1200px;
+        height:720px;
+
+        transform:scale(0.66);
+        transform-origin:top left;
+
         border-radius:0;
     }
 
     header{
-        height:auto;
-        grid-template-columns:1fr;
-        gap:14px;
-    }
-
-    .panel-title{
-        order:-1;
-        font-size:20px;
-        letter-spacing:3px;
-    }
-
-    .topright{
-        text-align:center;
+        height:70px;
     }
 
     main{
-        grid-template-columns:1fr;
-    }
-
-    .side,
-    .right{
-        flex-direction:row;
-        flex-wrap:wrap;
-    }
-
-    .side .btn,
-    .right .btn{
-        flex:1;
-        min-width:170px;
+        min-height:590px;
     }
 
     #viewerCard{
-        height:450px;
+        height:500px;
     }
 }
-</style>
+
+
+/* =========================================
+   PHONE PORTRAIT
+   Ask user to rotate phone
+========================================= */
+
+@media (max-width:900px) and (orientation:portrait){
+
+    body{
+        margin:0;
+        padding:0;
+        background:#111;
+        overflow:hidden;
+    }
+
+    #app{
+        display:none;
+    }
+
+    body::before{
+        content:"↻";
+        position:fixed;
+
+        top:30%;
+        left:50%;
+
+        transform:translate(-50%,-50%);
+
+        color:white;
+
+        font-size:80px;
+        font-weight:300;
+    }
+
+    body::after{
+        content:"ROTATE PHONE TO LANDSCAPE\A\A Robotic Arm Control Panel";
+
+        white-space:pre;
+
+        position:fixed;
+
+        top:53%;
+        left:50%;
+
+        transform:translate(-50%,-50%);
+
+        width:90%;
+
+        color:white;
+
+        text-align:center;
+
+        font-family:Segoe UI,Arial,sans-serif;
+
+        font-size:20px;
+        font-weight:700;
+
+        letter-spacing:2px;
+
+        line-height:1.6;
+    }
+}</style>
 </head>
 
 <body>

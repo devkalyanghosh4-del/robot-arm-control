@@ -45,10 +45,46 @@ const camera = new THREE.PerspectiveCamera(
 
 let cameraYaw = 0.72;
 let cameraPitch = 0.35;
-let cameraDistance = 22;
+let cameraDistance = 24;
 
 const cameraFocus = new THREE.Vector3(0, 4.8, 0);
 
+function updateResponsiveCameraDistance() {
+
+    const screenWidth = window.innerWidth;
+    const screenHeight = window.innerHeight;
+
+    const isLandscape =
+        screenWidth > screenHeight;
+
+    const isPhone =
+        isLandscape &&
+        screenHeight <= 550;
+
+    const isTablet =
+        isLandscape &&
+        screenWidth <= 1200 &&
+        screenHeight > 550;
+
+    if (isPhone) {
+
+        // Pull farther back on phones
+        // so base + full arm + gripper are visible.
+        cameraDistance = 29;
+
+    } else if (isTablet) {
+
+        // Tablet landscape
+        cameraDistance = 26;
+
+    } else {
+
+        // Laptop / desktop
+        cameraDistance = 23;
+    }
+
+    updateCamera();
+}
 // ======================================================
 // RENDERER
 // ======================================================
@@ -1053,7 +1089,7 @@ viewer.addEventListener(
     }
 );
 
-updateCamera();
+updateResponsiveCameraDistance();
 
 // ======================================================
 // ANIMATION
@@ -1147,9 +1183,14 @@ animate();
 // RESIZE
 // ======================================================
 
+// ======================================================
+// RESPONSIVE RESIZE
+// ======================================================
+
 window.addEventListener(
     "resize",
     () => {
+
         const width = viewer.clientWidth;
 
         const height = Math.max(
@@ -1165,5 +1206,8 @@ window.addEventListener(
             width,
             height
         );
+
+        updateResponsiveCameraDistance();
     }
 );
+    

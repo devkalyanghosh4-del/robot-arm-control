@@ -317,158 +317,279 @@ footer{
     display:none;
 }
 
-/* RESPONSIVE */
-
 /* =========================================
-   TABLET / PHONE LANDSCAPE
-   Keep desktop-style control panel
+   RESPONSIVE LAYOUT
 ========================================= */
 
-@media (max-width:1200px) and (orientation:landscape){
+/* TABLETS + PHONES IN LANDSCAPE */
+@media (orientation:landscape) and (max-width:1200px){
 
     body{
         padding:0;
-        overflow-x:auto;
+        margin:0;
         background:#222;
-    }
-
-    #app{
-        width:1200px;
-        min-height:100vh;
-        margin:0 auto;
-        border-radius:0;
-        transform-origin:top left;
-    }
-
-    header{
-        height:70px;
-        grid-template-columns:220px 1fr 180px;
-        padding:10px 20px;
-    }
-
-    .panel-title{
-        font-size:22px;
-        letter-spacing:3px;
-    }
-
-    main{
-        grid-template-columns:
-            190px
-            390px
-            430px
-            190px;
-
-        gap:14px;
-        padding:16px;
-        min-height:590px;
-    }
-
-    .side{
-        gap:18px;
-    }
-
-    .btn{
-        min-height:56px;
-        padding:10px;
-        font-size:13px;
-    }
-
-    #viewerCard{
-        height:520px;
-    }
-
-    #joints{
-        gap:14px;
-    }
-
-    .jointName{
-        font-size:11px;
-        margin-bottom:4px;
-    }
-
-    .shell{
-        height:42px;
-        grid-template-columns:75px 1fr;
-    }
-
-    .value{
-        font-size:13px;
-        padding-left:8px;
-    }
-
-    .range{
-        padding:0 8px;
-    }
-
-    .delayBox{
-        height:42px;
-        grid-template-columns:85px 1fr;
-    }
-
-    .delayBox input{
-        font-size:13px;
-    }
-
-    .delayBox span{
-        font-size:12px;
-        padding-left:8px;
-    }
-
-    footer{
-        height:55px;
-        font-size:10px;
-        letter-spacing:8px;
-    }
-}
-
-
-/* =========================================
-   PHONE LANDSCAPE
-   Scale desktop interface to fit screen
-========================================= */
-
-@media (max-width:900px) and (orientation:landscape){
-
-    body{
-        padding:0;
         overflow:hidden;
     }
 
     #app{
-        width:1200px;
-        height:720px;
+        width:100vw;
+        height:100vh;
+        max-width:none;
+        min-height:0;
 
-        transform:scale(0.55);
-        transform-origin:top left;
-
+        margin:0;
         border-radius:0;
+
+        display:flex;
+        flex-direction:column;
     }
 
     header{
-        height:70px;
+        height:9vh;
+        min-height:46px;
+
+        grid-template-columns:
+            minmax(130px,18%)
+            1fr
+            minmax(90px,12%);
+
+        padding:6px 16px;
+    }
+
+    .panel-title{
+        font-size:clamp(14px,2vw,24px);
+        letter-spacing:clamp(2px,.5vw,5px);
+    }
+
+    .conn{
+        font-size:clamp(9px,1.1vw,13px);
+    }
+
+    .dot{
+        width:10px;
+        height:10px;
+    }
+
+    header .btn{
+        min-height:40px;
+        padding:6px 10px;
+        font-size:11px;
     }
 
     main{
-        min-height:590px;
+        flex:1;
+
+        display:grid;
+
+        grid-template-columns:
+            minmax(135px,17%)
+            minmax(300px,34%)
+            minmax(340px,36%)
+            minmax(135px,16%);
+
+        gap:1vw;
+
+        padding:1.4vh 1.2vw;
+
+        min-height:0;
+        overflow:hidden;
+
+        align-items:stretch;
     }
 
+    .side{
+        min-width:0;
+        gap:1.2vh;
+        justify-content:center;
+    }
+
+    .btn{
+        min-height:0;
+        height:clamp(42px,8vh,64px);
+
+        padding:6px;
+
+        font-size:clamp(9px,1.1vw,13px);
+    }
+
+    /* LIVE VIEW */
+
     #viewerCard{
-        height:500px;
+        height:100%;
+        min-height:0;
+
+        max-height:none;
+
+        display:block;
+        overflow:hidden;
+    }
+
+    #viewer{
+        width:100%;
+        height:100%;
+    }
+
+    .viewerTitle{
+        top:8px;
+        left:10px;
+
+        font-size:9px;
+        letter-spacing:1px;
+    }
+
+    #xyz,
+    .saved{
+        bottom:8px;
+        padding:7px 9px;
+    }
+
+    #xyz{
+        left:8px;
+        font-size:10px;
+        line-height:1.35;
+    }
+
+    .saved{
+        right:8px;
+        font-size:9px;
+    }
+
+    /* JOINT SLIDERS */
+
+    #joints{
+        height:100%;
+
+        display:flex;
+        flex-direction:column;
+
+        justify-content:space-evenly;
+
+        gap:0;
+        min-height:0;
+    }
+
+    .jointName{
+        font-size:clamp(8px,.9vw,11px);
+        margin-bottom:2px;
+        letter-spacing:.5px;
+    }
+
+    .shell{
+        height:clamp(32px,6.2vh,45px);
+
+        grid-template-columns:
+            minmax(55px,21%)
+            1fr;
+    }
+
+    .value{
+        font-size:clamp(10px,1vw,13px);
+        padding-left:6px;
+    }
+
+    .range{
+        padding:0 6px;
+    }
+
+    input[type=range]{
+        height:14px;
+    }
+
+    input[type=range]::-webkit-slider-runnable-track{
+        height:8px;
+    }
+
+    input[type=range]::-webkit-slider-thumb{
+        width:14px;
+        height:21px;
+        margin-top:-7px;
+    }
+
+    /* DELAY */
+
+    .delay label{
+        font-size:8px;
+        margin-bottom:3px;
+    }
+
+    .delayBox{
+        height:clamp(30px,5.5vh,40px);
+
+        grid-template-columns:
+            minmax(50px,42%)
+            1fr;
+    }
+
+    .delayBox input{
+        font-size:10px;
+        padding:0 5px;
+    }
+
+    .delayBox span{
+        font-size:9px;
+        padding-left:5px;
+    }
+
+    footer{
+        display:none;
     }
 }
 
 
-/* =========================================
-   PHONE PORTRAIT
-   Ask user to rotate phone
-========================================= */
+/* EXTRA-SMALL LANDSCAPE PHONES */
+@media (orientation:landscape) and (max-height:500px){
 
-@media (max-width:900px) and (orientation:portrait){
+    header{
+        height:8vh;
+    }
+
+    main{
+        padding:.8vh .8vw;
+        gap:.7vw;
+
+        grid-template-columns:
+            16%
+            34%
+            35%
+            15%;
+    }
+
+    .side{
+        gap:.8vh;
+    }
+
+    .btn{
+        height:clamp(34px,7vh,46px);
+        font-size:9px;
+    }
+
+    .shell{
+        height:clamp(28px,5.5vh,36px);
+    }
+
+    .jointName{
+        font-size:8px;
+    }
+
+    #xyz{
+        font-size:8px;
+    }
+
+    .saved{
+        font-size:8px;
+    }
+}
+
+
+/* PHONE PORTRAIT */
+@media (orientation:portrait) and (max-width:900px){
 
     body{
         margin:0;
         padding:0;
+
         background:#111;
+
         overflow:hidden;
     }
 
@@ -478,6 +599,7 @@ footer{
 
     body::before{
         content:"↻";
+
         position:fixed;
 
         top:30%;
@@ -515,10 +637,10 @@ footer{
         font-weight:700;
 
         letter-spacing:2px;
-
         line-height:1.6;
     }
-}</style>
+}
+</style>
 </head>
 
 <body>

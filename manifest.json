@@ -1,0 +1,9 @@
+{
+  "name": "Robot Creator Control Station",
+  "short_name": "Robot Creator",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#ececea",
+  "theme_color": "#ececea",
+  "orientation": "landscape"
+}

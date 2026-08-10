@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<title>Robotic Arm Control Panel</title>
+
+<style>
+:root{
+    --bg:#e8e8e5;
+    --ink:#171717;
+    --line:#aaa;
+    --accent:#df8c22;
+}
+
+*{
+    box-sizing:border-box;
+    margin:0;
+    padding:0;
+}
+
+body{
+    font-family:Segoe UI,Arial,sans-serif;
+    background:#222;
+    padding:15px;
+    color:var(--ink);
+}
+
+#app{
+    max-width:1500px;
+    min-height:calc(100vh - 30px);
+    margin:auto;
+    background:linear-gradient(#fafaf8,#deded9);
+    border:2px solid #444;
+    border-radius:32px;
+    overflow:hidden;
+}
+
+/* HEADER */
+
+header{
+    height:82px;
+    display:grid;
+    grid-template-columns:240px 1fr 240px;
+    align-items:center;
+    padding:15px 25px;
+    border-bottom:1px solid #ccc;
+}
+
+.panel-title{
+    text-align:center;
+    font-size:27px;
+    font-weight:700;
+    letter-spacing:5px;
+    color:#222;
+}
+
+.conn{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    font-weight:700;
+    font-size:13px;
+}
+
+.dot{
+    width:13px;
+    height:13px;
+    border-radius:50%;
+    background:#888;
+}
+
+.dot.on{
+    background:#268955;
+    box-shadow:0 0 13px #268955;
+}
+
+.topright{
+    text-align:right;
+}
+
+/* BUTTONS */
+
+.btn{
+    min-height:69px;
+    border:1px solid #333;
+    background:linear-gradient(#292929,#151515);
+    color:#fff;
+    padding:14px;
+    font-weight:650;
+    cursor:pointer;
+}
+
+.btn:hover{
+    filter:brightness(1.18);
+}
+
+.btn.red{
+    background:linear-gradient(#ad3636,#762020);
+}
+
+.btn.green{
+    background:linear-gradient(#29925d,#155d39);
+}
+
+.btn:disabled{
+    opacity:.45;
+    cursor:not-allowed;
+}
+
+/* MAIN LAYOUT */
+
+main{
+    display:grid;
+    grid-template-columns:
+        225px
+        minmax(360px,.95fr)
+        minmax(480px,1.2fr)
+        225px;
+
+    gap:24px;
+    padding:30px;
+    align-items:center;
+    min-height:680px;
+}
+
+.side{
+    display:flex;
+    flex-direction:column;
+    gap:32px;
+}
+
+/* VIEWER */
+
+#viewerCard{
+    height:600px;
+    position:relative;
+    border:1px solid #bbb;
+    background:
+        radial-gradient(
+            circle,
+            #fff,
+            #d0d0cb
+        );
+    overflow:hidden;
+}
+
+#viewer{
+    width:100%;
+    height:100%;
+}
+
+.viewerTitle{
+    position:absolute;
+    top:16px;
+    left:18px;
+    font-size:12px;
+    font-weight:800;
+    letter-spacing:2px;
+    z-index:2;
+}
+
+#xyz,
+.saved{
+    position:absolute;
+    bottom:16px;
+    background:rgba(20,20,20,.9);
+    color:white;
+    padding:11px 14px;
+    z-index:2;
+}
+
+#xyz{
+    left:16px;
+    font:14px/1.6 Consolas;
+}
+
+.saved{
+    right:16px;
+    font-size:13px;
+}
+
+/* JOINT CONTROLS */
+
+#joints{
+    display:flex;
+    flex-direction:column;
+    gap:20px;
+}
+
+.jointName{
+    font-size:13px;
+    font-weight:800;
+    letter-spacing:1px;
+    margin-bottom:5px;
+}
+
+.shell{
+    height:48px;
+    display:grid;
+    grid-template-columns:88px 1fr;
+    border:2px solid #4d4d4d;
+    background:#f4f4f1;
+}
+
+.value{
+    background:#171717;
+    color:#fff;
+    display:flex;
+    align-items:center;
+    padding-left:12px;
+    font:16px Consolas;
+}
+
+.range{
+    display:flex;
+    align-items:center;
+    padding:0 12px;
+}
+
+input[type=range]{
+    appearance:none;
+    width:100%;
+    height:18px;
+    background:transparent;
+}
+
+input[type=range]::-webkit-slider-runnable-track{
+    height:13px;
+    border:1px solid #555;
+
+    background:
+        linear-gradient(
+            to right,
+            #1c1c1c 0%,
+            #1c1c1c var(--p),
+            #efefeb var(--p),
+            #efefeb 100%
+        );
+}
+
+input[type=range]::-webkit-slider-thumb{
+    appearance:none;
+    width:20px;
+    height:27px;
+    margin-top:-8px;
+    border:2px solid #222;
+    background:var(--accent);
+}
+
+/* DELAY */
+
+.delay label{
+    display:block;
+    font-size:12px;
+    font-weight:800;
+    margin-bottom:7px;
+    letter-spacing:1px;
+}
+
+.delayBox{
+    height:47px;
+    display:grid;
+    grid-template-columns:100px 1fr;
+    border:2px solid #4d4d4d;
+}
+
+.delayBox input{
+    border:0;
+    background:#171717;
+    color:#fff;
+    padding:0 10px;
+    font-size:16px;
+}
+
+.delayBox span{
+    display:flex;
+    align-items:center;
+    padding-left:12px;
+    color:#555;
+}
+
+/* FOOTER */
+
+footer{
+    height:76px;
+    border-top:1px solid #ccc;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    letter-spacing:12px;
+    color:#555;
+    font-size:12px;
+}
+
+/* TOAST */
+
+#toast{
+    position:fixed;
+    left:50%;
+    bottom:20px;
+    transform:translateX(-50%);
+    background:#111;
+    color:#fff;
+    padding:12px 20px;
+    opacity:0;
+    transition:.2s;
+    pointer-events:none;
+}
+
+#toast.show{
+    opacity:1;
+}
+
+#importFile{
+    display:none;
+}
+
+/* RESPONSIVE */
+
+@media(max-width:1200px){
+
+    main{
+        grid-template-columns:
+            210px
+            1fr
+            1fr;
+    }
+
+    .right{
+        grid-column:1/-1;
+        flex-direction:row;
+        justify-content:center;
+        flex-wrap:wrap;
+    }
+
+    .right .btn{
+        width:210px;
+    }
+}
+
+@media(max-width:850px){
+
+    body{
+        padding:0;
+    }
+
+    #app{
+        border-radius:0;
+    }
+
+    header{
+        height:auto;
+        grid-template-columns:1fr;
+        gap:14px;
+    }
+
+    .panel-title{
+        order:-1;
+        font-size:20px;
+        letter-spacing:3px;
+    }
+
+    .topright{
+        text-align:center;
+    }
+
+    main{
+        grid-template-columns:1fr;
+    }
+
+    .side,
+    .right{
+        flex-direction:row;
+        flex-wrap:wrap;
+    }
+
+    .side .btn,
+    .right .btn{
+        flex:1;
+        min-width:170px;
+    }
+
+    #viewerCard{
+        height:450px;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<div id="app">
+
+<header>
+
+    <div class="conn">
+        <span
+            id="dot"
+            class="dot">
+        </span>
+
+        <span id="connText">
+            ARDUINO OFFLINE
+        </span>
+    </div>
+
+    <div class="panel-title">
+        ROBOTIC ARM CONTROL PANEL
+    </div>
+
+    <div class="topright">
+        <button
+            id="exit"
+            class="btn">
+            EXIT
+        </button>
+    </div>
+
+</header>
+
+<main>
+
+    <!-- LEFT CONTROLS -->
+
+    <section class="side">
+
+        <button
+            id="connect"
+            class="btn green">
+            CONNECT ARDUINO
+        </button>
+
+        <button
+            id="save"
+            class="btn">
+            SAVE POSITIONS
+        </button>
+
+        <button
+            id="play"
+            class="btn">
+            PLAY MOVEMENTS
+        </button>
+
+        <button
+            id="stop"
+            class="btn red">
+            STOP MOVEMENT
+        </button>
+
+        <div class="delay">
+
+            <label>
+                MOVEMENT DELAY
+            </label>
+
+            <div class="delayBox">
+
+                <input
+                    id="delay"
+                    type="number"
+                    value="1000"
+                    min="100"
+                    max="10000"
+                    step="100">
+
+                <span>
+                    milliseconds
+                </span>
+
+            </div>
+
+        </div>
+
+    </section>
+
+    <!-- LIVE 3D ROBOT -->
+
+    <section id="viewerCard">
+
+        <div class="viewerTitle">
+            LIVE ROBOT VIEW
+        </div>
+
+        <div id="viewer"></div>
+
+        <div id="xyz">
+            X: 0.00<br>
+            Y: 0.00<br>
+            Z: 0.00
+        </div>
+
+        <div class="saved">
+            SAVED:
+            <span id="count">
+                0
+            </span>
+        </div>
+
+    </section>
+
+    <!-- JOINT SLIDERS -->
+
+    <section id="joints"></section>
+
+    <!-- RIGHT CONTROLS -->
+
+    <section class="side right">
+
+        <button
+            id="export"
+            class="btn">
+            EXPORT POSITIONS
+        </button>
+
+        <button
+            id="import"
+            class="btn">
+            IMPORT POSITIONS
+        </button>
+
+        <button
+            id="reset"
+            class="btn">
+            RESET POSITIONS
+        </button>
+
+        <button
+            id="home"
+            class="btn">
+            HOME ROBOT
+        </button>
+
+        <button
+            id="disconnect"
+            class="btn"
+            disabled>
+            DISCONNECT
+        </button>
+
+    </section>
+
+</main>
+
+<footer>
+    ROBOT ARM CONTROL SYSTEM
+</footer>
+
+</div>
+
+<input
+    id="importFile"
+    type="file"
+    accept=".json,application/json">
+
+<div id="toast"></div>
+
+<script
+    type="module"
+    src="./app.js">
+</script>
+
+<script src="./serial.js"></script>
+<script src="./ui.js"></script>
+
+</body>
+</html>

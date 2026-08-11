@@ -4,7 +4,12 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
 
 const uint8_t SERVO_CHANNELS[6] = {
-  7, 5, 4, 3, 1, 0
+  7,  // Base
+  1,  // Shoulder
+  3,  // Elbow
+  4,  // Wrist Roll
+  5,  // Wrist Yaw
+  0   // Gripper - test this
 };
 
 const uint8_t MIRROR_SERVO_CHANNEL = 8;

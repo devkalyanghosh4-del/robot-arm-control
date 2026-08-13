@@ -4,351 +4,232 @@
     let port = null;
     let writer = null;
     let writeQueue = Promise.resolve();
-
     const encoder = new TextEncoder();
 
     window.serialConnected = false;
+    window.robotTransport = "—";
+    window.robotBaudRate = 9600;
+    window.robotLastCommand = null;
+    window.robotCommandCount = 0;
+    window.robotFailedCommands = 0;
 
+    const JOINT_NAMES = [
+        "Base",
+        "Shoulder",
+        "Elbow",
+        "Wrist Roll",
+        "Wrist Yaw",
+        "Gripper"
+    ];
 
-    // =====================================================
-    // WEB JOINT -> ARDUINO COMMAND MAPPING
-    // =====================================================
-    //
-    // UI:
-    // 1 = Base
-    // 2 = Shoulder
-    // 3 = Elbow
-    // 4 = Wrist Roll
-    // 5 = Wrist Yaw
-    // 6 = Gripper
-    //
-    // TESTED PHYSICAL RESPONSE:
-    //
-    // Arduino 1 = Base
-    // Arduino 2 = Shoulder
-    // Arduino 4 = Elbow
-    // Arduino 6 = Wrist Yaw
-    // Arduino 5 = Gripper
-    //
-    // Wrist Roll is still unknown.
-    // We DISABLE it instead of allowing it to move
-    // the wrong motor.
-    // =====================================================
+    // Known working command mapping from physical tests.
+    // Wrist Roll remains disabled until identified/calibrated.
+    const DEFAULT_CALIBRATION = [
+        { commandId: 1, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
+        { commandId: 2, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
+        { commandId: 4, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
+        { commandId: null, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: false },
+        { commandId: 6, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
+        { commandId: 5, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true }
+    ];
 
-    const JOINT_MAP = {
-        1: 1,       // BASE
-        2: 2,       // SHOULDER
-        3: 4,       // ELBOW
-        4: null,    // WRIST ROLL - not identified yet
-        5: 6,       // WRIST YAW
-        6: 5        // GRIPPER
-    };
+    function defaults() {
+        return DEFAULT_CALIBRATION.map(x => ({...x}));
+    }
 
+    function log(message, level="info") {
+        const fn = level === "error" ? "error" : level === "warn" ? "warn" : "log";
+        console[fn](message);
+        window.robotLog?.(message, level);
+    }
 
-    // =====================================================
-    // CONNECT
-    // =====================================================
+    function loadCalibration() {
+        try {
+            const raw = localStorage.getItem("robotCreatorV3Calibration");
+            const parsed = raw ? JSON.parse(raw) : null;
+            if (Array.isArray(parsed) && parsed.length === 6) {
+                return parsed.map((x,i) => ({...defaults()[i], ...x}));
+            }
+        } catch (e) {
+            console.warn(e);
+        }
+        return defaults();
+    }
+
+    let calibration = loadCalibration();
+
+    function getRobotCalibration() {
+        return calibration.map(x => ({...x}));
+    }
+
+    function saveRobotCalibration(next) {
+        calibration = next.map((x,i) => ({...defaults()[i], ...x}));
+        localStorage.setItem("robotCreatorV3Calibration", JSON.stringify(calibration));
+        window.dispatchEvent(new CustomEvent("robot-calibration-changed"));
+        log("Calibration profile saved.");
+    }
+
+    function resetRobotCalibration() {
+        calibration = defaults();
+        localStorage.setItem("robotCreatorV3Calibration", JSON.stringify(calibration));
+        window.dispatchEvent(new CustomEvent("robot-calibration-changed"));
+        log("Calibration reset to defaults.", "warn");
+    }
 
     async function connectArduino() {
-
         try {
-
             let serialAPI;
 
-
-            // Android
-            if (
-                /Android/i.test(navigator.userAgent) &&
-                window.androidSerial
-            ) {
-
+            if (/Android/i.test(navigator.userAgent) && window.androidSerial) {
                 serialAPI = window.androidSerial;
-
-                console.log(
-                    "Using WebUSB serial on Android."
-                );
-
-            }
-
-            // Laptop / desktop
-            else if ("serial" in navigator) {
-
+                window.robotTransport = "WebUSB Serial";
+            } else if ("serial" in navigator) {
                 serialAPI = navigator.serial;
-
-                console.log(
-                    "Using native Web Serial."
-                );
-
-            }
-
-            else {
-
-                alert(
-                    "USB serial is not supported by this browser."
-                );
-
+                window.robotTransport = "Web Serial";
+            } else {
+                alert("USB serial is not supported by this browser.");
                 return false;
             }
 
-
             port = await serialAPI.requestPort();
 
-
             await port.open({
-                baudRate: 9600,
+                baudRate: window.robotBaudRate,
                 dataBits: 8,
                 stopBits: 1,
                 parity: "none",
                 flowControl: "none"
             });
 
-
             writer = port.writable.getWriter();
-
             window.serialConnected = true;
             window.emergencyStopped = false;
 
+            await new Promise(resolve => setTimeout(resolve, 1800));
 
-            // Allow Arduino Uno to reset
-            await new Promise(resolve => {
-                setTimeout(resolve, 1800);
-            });
-
-
-            console.log(
-                "Arduino connected at 9600 baud."
-            );
-
+            log(`Arduino connected at ${window.robotBaudRate} baud via ${window.robotTransport}.`);
+            window.dispatchEvent(new CustomEvent("robot-connection-changed"));
             return true;
-
-
         } catch (error) {
-
-            console.error(
-                "Arduino connection failed:",
-                error
-            );
-
             window.serialConnected = false;
-
-
+            window.robotFailedCommands++;
+            window.dispatchEvent(new CustomEvent("robot-connection-changed"));
+            console.error(error);
             if (error.name !== "NotFoundError") {
-
-                alert(
-                    "Arduino connection failed: " +
-                    (error.message || error)
-                );
-
+                alert("Arduino connection failed: " + (error.message || error));
             }
-
-
             return false;
         }
     }
 
+    function mapAngle(config, angle) {
+        const uiMin = Number(config.uiMin ?? -90);
+        const uiMax = Number(config.uiMax ?? 90);
+        let appAngle = Math.max(uiMin, Math.min(uiMax, Number(angle)));
 
+        const originalAppAngle = appAngle;
 
-    // =====================================================
-    // SEND JOINT COMMAND
-    //
-    // APPLICATION:
-    //
-    // -90° = reverse / left
-    //   0° = center
-    // +90° = forward / right
-    //
-    // ARDUINO:
-    //
-    // -90° ->   0°
-    //   0° ->  90°
-    // +90° -> 180°
-    //
-    // =====================================================
+        if (config.reverse) {
+            appAngle = -appAngle;
+        }
 
-    async function sendServoCommand(
-        jointNumber,
-        angle
-    ) {
+        const center = Number(config.center ?? 90);
+        const servoMin = Number(config.servoMin ?? 0);
+        const servoMax = Number(config.servoMax ?? 180);
 
-        if (
-            !writer ||
-            !window.serialConnected ||
-            window.emergencyStopped
-        ) {
+        let servoAngle;
+        if (appAngle <= 0) {
+            const t = (appAngle - uiMin) / (0 - uiMin || 1);
+            servoAngle = servoMin + t * (center - servoMin);
+        } else {
+            const t = appAngle / (uiMax || 1);
+            servoAngle = center + t * (servoMax - center);
+        }
+
+        return {
+            appAngle: Math.round(originalAppAngle),
+            effectiveAngle: Math.round(appAngle),
+            servoAngle: Math.round(Math.max(0, Math.min(180, servoAngle)))
+        };
+    }
+
+    async function sendServoCommand(jointNumber, angle) {
+        const joint = Math.max(1, Math.min(6, Math.round(Number(jointNumber))));
+        const cfg = calibration[joint - 1];
+
+        if (!cfg || !cfg.enabled || cfg.commandId == null) {
+            log(`${JOINT_NAMES[joint-1]} command blocked: joint is not calibrated/enabled.`, "warn");
             return false;
         }
 
-
-        // ---------------------------------------------
-        // WEB JOINT NUMBER
-        // ---------------------------------------------
-
-        const safeJoint = Math.max(
-            1,
-            Math.min(
-                6,
-                Math.round(
-                    Number(jointNumber)
-                )
-            )
-        );
-
-
-        // ---------------------------------------------
-        // FIND PHYSICAL ARDUINO COMMAND ID
-        // ---------------------------------------------
-
-        const arduinoServo =
-            JOINT_MAP[safeJoint];
-
-
-        // Wrist Roll is intentionally blocked until
-        // its real motor/channel is identified.
-        if (arduinoServo == null) {
-
-            console.warn(
-                "Wrist Roll is currently unassigned."
-            );
-
+        if (!writer || !window.serialConnected) {
+            log(`${JOINT_NAMES[joint-1]} simulated only: hardware is offline.`, "warn");
             return false;
         }
 
+        if (window.emergencyStopped) {
+            log("Command blocked by emergency stop.", "error");
+            return false;
+        }
 
-        // ---------------------------------------------
-        // APPLICATION ANGLE
-        // ---------------------------------------------
+        const mapped = mapAngle(cfg, angle);
+        const command = `${cfg.commandId} ${mapped.servoAngle}\n`;
 
-        const appAngle = Math.max(
-            -90,
-            Math.min(
-                90,
-                Math.round(
-                    Number(angle)
-                )
-            )
-        );
-
-
-        // ---------------------------------------------
-        // -90..+90 -> 0..180
-        // ---------------------------------------------
-
-        const servoAngle =
-            appAngle + 90;
-
-
-        // ---------------------------------------------
-        // SEND ONLY ONE COMMAND
-        // ---------------------------------------------
-
-        const command =
-            `${arduinoServo} ${servoAngle}\n`;
-
-
-        writeQueue =
-            writeQueue.then(
-                () =>
-                    writer.write(
-                        encoder.encode(command)
-                    )
-            );
-
+        writeQueue = writeQueue.then(() => writer.write(encoder.encode(command)));
 
         try {
-
             await writeQueue;
+            window.robotCommandCount++;
 
+            window.robotLastCommand = {
+                joint: JOINT_NAMES[joint-1],
+                jointNumber: joint,
+                commandId: cfg.commandId,
+                appAngle: mapped.appAngle,
+                effectiveAngle: mapped.effectiveAngle,
+                servoAngle: mapped.servoAngle,
+                time: new Date().toLocaleTimeString()
+            };
 
-            console.log(
-                `UI Joint ${safeJoint}` +
-                ` -> Arduino ${arduinoServo}` +
-                ` | ${appAngle}°` +
-                ` -> ${servoAngle}°`
+            window.dispatchEvent(new CustomEvent("robot-command-sent", {
+                detail: window.robotLastCommand
+            }));
+
+            log(
+                `${JOINT_NAMES[joint-1]}: ${mapped.appAngle}° → ID ${cfg.commandId} → ${mapped.servoAngle}°`
             );
-
-
             return true;
-
-
         } catch (error) {
-
-            console.error(
-                "Serial write failed:",
-                error
-            );
-
-
+            window.robotFailedCommands++;
+            log("Serial write failed: " + (error.message || error), "error");
             await disconnectArduino();
-
-
             return false;
         }
     }
-
-
-
-    // =====================================================
-    // DISCONNECT
-    // =====================================================
 
     async function disconnectArduino() {
-
         window.serialConnected = false;
-
-
         try {
-
-            await writeQueue.catch(
-                () => {}
-            );
-
-
+            await writeQueue.catch(() => {});
             if (writer) {
-
                 writer.releaseLock();
-
                 writer = null;
-
             }
-
-
             if (port) {
-
                 await port.close();
-
                 port = null;
-
             }
-
-
-            console.log(
-                "Arduino disconnected."
-            );
-
-
+            log("Arduino disconnected.");
         } catch (error) {
-
-            console.warn(
-                "Disconnect warning:",
-                error
-            );
-
+            console.warn(error);
         }
+        window.dispatchEvent(new CustomEvent("robot-connection-changed"));
     }
 
-
-
-    // =====================================================
-    // EXPOSE FUNCTIONS
-    // =====================================================
-
-    window.connectArduino =
-        connectArduino;
-
-    window.sendServoCommand =
-        sendServoCommand;
-
-    window.disconnectArduino =
-        disconnectArduino;
-
+    window.connectArduino = connectArduino;
+    window.sendServoCommand = sendServoCommand;
+    window.disconnectArduino = disconnectArduino;
+    window.getRobotCalibration = getRobotCalibration;
+    window.saveRobotCalibration = saveRobotCalibration;
+    window.resetRobotCalibration = resetRobotCalibration;
 })();

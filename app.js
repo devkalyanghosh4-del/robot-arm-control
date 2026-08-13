@@ -905,7 +905,6 @@ window.setRobotJoint = function (
     jointIndex,
     degrees
 ) {
-
     if (
         !Number.isInteger(jointIndex) ||
         jointIndex < 0 ||
@@ -914,10 +913,6 @@ window.setRobotJoint = function (
         return;
     }
 
-    // New application coordinate system:
-    // -90 = backward / left
-    //   0 = center
-    // +90 = forward / right
     const value = THREE.MathUtils.clamp(
         Number(degrees),
         -90,
@@ -925,75 +920,40 @@ window.setRobotJoint = function (
     );
 
     window.robotAngles[jointIndex] = value;
-
-    // Because 0 is already the center,
-    // DO NOT subtract 90 anymore.
-    const angle =
-        THREE.MathUtils.degToRad(value);
-
+    const angle = THREE.MathUtils.degToRad(value);
 
     switch (jointIndex) {
-
-        // =============================================
-        // JOINT 1 — BASE ONLY
-        // =============================================
         case 0:
-
-            window.robotTargets.base =
-                angle;
-
+            window.robotTargets.base = angle;
             break;
-
-
-        // =============================================
-        // JOINT 2 — SHOULDER ONLY
-        // =============================================
         case 1:
-
             window.robotTargets.shoulder =
-                -0.55 - angle;
-
+                THREE.MathUtils.clamp(
+                    -angle - 0.55,
+                    -1.55,
+                    0.65
+                );
             break;
-
-
-        // =============================================
-        // JOINT 3 — ELBOW ONLY
-        // =============================================
         case 2:
-
             window.robotTargets.elbow =
-                1.05 + angle;
-
+                THREE.MathUtils.clamp(
+                    angle + 1.05,
+                    -0.25,
+                    2.15
+                );
             break;
-
-
-        // =============================================
-        // JOINT 4 — WRIST ROLL/PITCH ONLY
-        // =============================================
         case 3:
-
             window.robotTargets.wristPitch =
-                -0.45 - angle;
-
+                THREE.MathUtils.clamp(
+                    -angle - 0.45,
+                    -1.65,
+                    1.15
+                );
             break;
-
-
-        // =============================================
-        // JOINT 5 — WRIST YAW/ROTATION ONLY
-        // =============================================
         case 4:
-
-            window.robotTargets.wristRotation =
-                angle;
-
+            window.robotTargets.wristRotation = angle;
             break;
-
-
-        // =============================================
-        // JOINT 6 — GRIPPER ONLY
-        // =============================================
         case 5:
-
             window.robotTargets.gripperGap =
                 THREE.MathUtils.mapLinear(
                     value,
@@ -1002,7 +962,6 @@ window.setRobotJoint = function (
                     0.18,
                     0.62
                 );
-
             break;
     }
 };

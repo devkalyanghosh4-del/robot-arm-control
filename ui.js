@@ -1,21 +1,581 @@
-(()=>{"use strict";
-const names=["BASE","SHOULDER","ELBOW","WRIST ROLL","WRIST YAW","GRIPPER"],jointColumn=document.getElementById("joints"),connect=document.getElementById("connect"),disconnect=document.getElementById("disconnect"),dot=document.getElementById("dot"),connText=document.getElementById("connText"),count=document.getElementById("count"),importFile=document.getElementById("importFile"),toast=document.getElementById("toast");
-const sliders=[],values=[];let saved=[],stopped=false,playing=false;
-function msg(t){toast.textContent=t;toast.classList.add("show");clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>toast.classList.remove("show"),2200)}
-function progress(s){const p=((+s.value-+s.min)/(+s.max-+s.min))*100;s.style.setProperty("--p",`${p}%`)}
-async function apply(i,d,send=true){const v=Math.max(0,Math.min(180,+d));sliders[i].value=String(v);values[i].textContent=v.toFixed(2);progress(sliders[i]);window.setRobotJoint?.(i,v);if(send)await window.sendServoCommand?.(i+1,v)}
-names.forEach((n,i)=>{const b=document.createElement("div");b.innerHTML=`<div class="jointName">${n}</div><div class="shell"><div class="value">90.00</div><div class="range"><input type="range" min="0" max="180" step="1" value="90"></div></div>`;jointColumn.appendChild(b);const s=b.querySelector("input"),v=b.querySelector(".value");sliders.push(s);values.push(v);progress(s);s.addEventListener("input",e=>apply(i,e.target.value,true))});
-const current=()=>sliders.map(s=>+s.value);
-async function moveTo(pos){window.emergencyStopped=false;for(let i=0;i<6;i++){await apply(i,pos[i],true);await new Promise(r=>setTimeout(r,35))}}
-function connection(on){dot.classList.toggle("on",on);connText.textContent=on?"ARDUINO ONLINE":"ARDUINO OFFLINE";connect.disabled=on;disconnect.disabled=!on}
-connect.addEventListener("click",async()=>{const ok=await window.connectArduino?.();connection(!!ok);msg(ok?"Arduino connected at 9600 baud":"Arduino connection cancelled")});
-disconnect.addEventListener("click",async()=>{await window.disconnectArduino?.();connection(false);msg("Arduino disconnected")});
-document.getElementById("save").addEventListener("click",()=>{saved.push(current());count.textContent=String(saved.length);msg(`Position ${saved.length} saved`)});
-document.getElementById("play").addEventListener("click",async()=>{if(playing)return msg("Movement is already playing");if(!saved.length)return msg("Save at least one position first");playing=true;stopped=false;window.emergencyStopped=false;const delay=Math.max(100,+document.getElementById("delay").value||1000);for(const p of saved){if(stopped)break;await moveTo(p);await new Promise(r=>setTimeout(r,delay))}playing=false;msg(stopped?"Movement stopped":"Movement playback complete")});
-document.getElementById("stop").addEventListener("click",()=>{stopped=true;playing=false;window.emergencyStopped=true;msg("Emergency stop activated")});
-document.getElementById("home").addEventListener("click",async()=>{stopped=true;window.emergencyStopped=false;await moveTo([90,90,90,90,90,90]);msg("Robot returned home")});
-document.getElementById("reset").addEventListener("click",async()=>{saved=[];count.textContent="0";stopped=true;window.emergencyStopped=false;await moveTo([90,90,90,90,90,90]);msg("Saved positions reset")});
-document.getElementById("export").addEventListener("click",()=>{if(!saved.length)return msg("There are no saved positions");const blob=new Blob([JSON.stringify({application:"Robot Creator",exportedAt:new Date().toISOString(),positions:saved},null,2)],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="robot-positions.json";a.click();URL.revokeObjectURL(url);msg("Positions exported")});
-document.getElementById("import").addEventListener("click",()=>importFile.click());
-importFile.addEventListener("change",e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(String(r.result)),p=Array.isArray(d)?d:d.positions;if(!Array.isArray(p)||!p.every(row=>Array.isArray(row)&&row.length===6))throw new Error();saved=p.map(row=>row.map(v=>Math.max(0,Math.min(180,+v))));count.textContent=String(saved.length);msg(`${saved.length} positions imported`)}catch{msg("Invalid positions file")}};r.readAsText(f);e.target.value=""});
-document.getElementById("exit").addEventListener("click",()=>{if(confirm("Exit Robot Creator?"))window.close()});connection(false);})();
+(() => {
+    "use strict";
+
+    const names = [
+        "BASE",
+        "SHOULDER",
+        "ELBOW",
+        "WRIST ROLL",
+        "WRIST YAW",
+        "GRIPPER"
+    ];
+
+    const jointColumn = document.getElementById("joints");
+    const connect = document.getElementById("connect");
+    const disconnect = document.getElementById("disconnect");
+    const dot = document.getElementById("dot");
+    const connText = document.getElementById("connText");
+    const count = document.getElementById("count");
+    const importFile = document.getElementById("importFile");
+    const toast = document.getElementById("toast");
+
+    const sliders = [];
+    const values = [];
+
+    let saved = [];
+    let stopped = false;
+    let playing = false;
+
+
+    function msg(t) {
+        toast.textContent = t;
+        toast.classList.add("show");
+
+        clearTimeout(window.toastTimer);
+
+        window.toastTimer = setTimeout(
+            () => toast.classList.remove("show"),
+            2200
+        );
+    }
+
+
+    function progress(s) {
+        const p =
+            ((+s.value - +s.min) /
+            (+s.max - +s.min)) * 100;
+
+        s.style.setProperty("--p", `${p}%`);
+    }
+
+
+    // =====================================================
+    // APPLY JOINT ANGLE
+    // Application range: -90 to +90
+    // =====================================================
+
+    async function apply(i, d, send = true) {
+
+        const v = Math.max(
+            -90,
+            Math.min(90, +d)
+        );
+
+        sliders[i].value = String(v);
+
+        values[i].textContent =
+            v.toFixed(2);
+
+        progress(sliders[i]);
+
+        // 3D robot receives -90 to +90
+        window.setRobotJoint?.(i, v);
+
+        // Serial.js will convert:
+        // -90 -> 0
+        //   0 -> 90
+        // +90 -> 180
+        if (send) {
+            await window.sendServoCommand?.(
+                i + 1,
+                v
+            );
+        }
+    }
+
+
+    // =====================================================
+    // CREATE ALL SIX JOINT SLIDERS
+    // =====================================================
+
+    names.forEach((n, i) => {
+
+        const b =
+            document.createElement("div");
+
+        b.innerHTML = `
+            <div class="jointName">
+                ${n}
+            </div>
+
+            <div class="shell">
+
+                <div class="value">
+                    0.00
+                </div>
+
+                <div class="range">
+                    <input
+                        type="range"
+                        min="-90"
+                        max="90"
+                        step="1"
+                        value="0"
+                    >
+                </div>
+
+            </div>
+        `;
+
+        jointColumn.appendChild(b);
+
+        const s = b.querySelector("input");
+        const v = b.querySelector(".value");
+
+        sliders.push(s);
+        values.push(v);
+
+        progress(s);
+
+        s.addEventListener(
+            "input",
+            e => apply(
+                i,
+                e.target.value,
+                true
+            )
+        );
+    });
+
+
+    const current =
+        () => sliders.map(
+            s => +s.value
+        );
+
+
+    async function moveTo(pos) {
+
+        window.emergencyStopped = false;
+
+        for (let i = 0; i < 6; i++) {
+
+            await apply(
+                i,
+                pos[i],
+                true
+            );
+
+            await new Promise(
+                r => setTimeout(r, 35)
+            );
+        }
+    }
+
+
+    function connection(on) {
+
+        dot.classList.toggle(
+            "on",
+            on
+        );
+
+        connText.textContent =
+            on
+                ? "ARDUINO ONLINE"
+                : "ARDUINO OFFLINE";
+
+        connect.disabled = on;
+        disconnect.disabled = !on;
+    }
+
+
+    // =====================================================
+    // CONNECT
+    // =====================================================
+
+    connect.addEventListener(
+        "click",
+        async () => {
+
+            const ok =
+                await window.connectArduino?.();
+
+            connection(!!ok);
+
+            msg(
+                ok
+                    ? "Arduino connected at 9600 baud"
+                    : "Arduino connection cancelled"
+            );
+        }
+    );
+
+
+    // =====================================================
+    // DISCONNECT
+    // =====================================================
+
+    disconnect.addEventListener(
+        "click",
+        async () => {
+
+            await window.disconnectArduino?.();
+
+            connection(false);
+
+            msg(
+                "Arduino disconnected"
+            );
+        }
+    );
+
+
+    // =====================================================
+    // SAVE POSITION
+    // =====================================================
+
+    document
+        .getElementById("save")
+        .addEventListener(
+            "click",
+            () => {
+
+                saved.push(
+                    current()
+                );
+
+                count.textContent =
+                    String(saved.length);
+
+                msg(
+                    `Position ${saved.length} saved`
+                );
+            }
+        );
+
+
+    // =====================================================
+    // PLAY MOVEMENTS
+    // =====================================================
+
+    document
+        .getElementById("play")
+        .addEventListener(
+            "click",
+            async () => {
+
+                if (playing) {
+                    return msg(
+                        "Movement is already playing"
+                    );
+                }
+
+                if (!saved.length) {
+                    return msg(
+                        "Save at least one position first"
+                    );
+                }
+
+                playing = true;
+                stopped = false;
+
+                window.emergencyStopped =
+                    false;
+
+                const delay = Math.max(
+                    100,
+                    +document
+                        .getElementById("delay")
+                        .value || 1000
+                );
+
+                for (const p of saved) {
+
+                    if (stopped) {
+                        break;
+                    }
+
+                    await moveTo(p);
+
+                    await new Promise(
+                        r => setTimeout(
+                            r,
+                            delay
+                        )
+                    );
+                }
+
+                playing = false;
+
+                msg(
+                    stopped
+                        ? "Movement stopped"
+                        : "Movement playback complete"
+                );
+            }
+        );
+
+
+    // =====================================================
+    // STOP
+    // =====================================================
+
+    document
+        .getElementById("stop")
+        .addEventListener(
+            "click",
+            () => {
+
+                stopped = true;
+                playing = false;
+
+                window.emergencyStopped =
+                    true;
+
+                msg(
+                    "Emergency stop activated"
+                );
+            }
+        );
+
+
+    // =====================================================
+    // HOME
+    // Center is now ZERO degrees
+    // =====================================================
+
+    document
+        .getElementById("home")
+        .addEventListener(
+            "click",
+            async () => {
+
+                stopped = true;
+
+                window.emergencyStopped =
+                    false;
+
+                await moveTo([
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                ]);
+
+                msg(
+                    "Robot returned home"
+                );
+            }
+        );
+
+
+    // =====================================================
+    // RESET
+    // =====================================================
+
+    document
+        .getElementById("reset")
+        .addEventListener(
+            "click",
+            async () => {
+
+                saved = [];
+
+                count.textContent =
+                    "0";
+
+                stopped = true;
+
+                window.emergencyStopped =
+                    false;
+
+                await moveTo([
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                ]);
+
+                msg(
+                    "Saved positions reset"
+                );
+            }
+        );
+
+
+    // =====================================================
+    // EXPORT
+    // =====================================================
+
+    document
+        .getElementById("export")
+        .addEventListener(
+            "click",
+            () => {
+
+                if (!saved.length) {
+                    return msg(
+                        "There are no saved positions"
+                    );
+                }
+
+                const blob =
+                    new Blob(
+                        [
+                            JSON.stringify(
+                                {
+                                    application:
+                                        "Robot Creator",
+
+                                    exportedAt:
+                                        new Date()
+                                            .toISOString(),
+
+                                    positions:
+                                        saved
+                                },
+                                null,
+                                2
+                            )
+                        ],
+                        {
+                            type:
+                                "application/json"
+                        }
+                    );
+
+                const url =
+                    URL.createObjectURL(
+                        blob
+                    );
+
+                const a =
+                    document.createElement(
+                        "a"
+                    );
+
+                a.href = url;
+
+                a.download =
+                    "robot-positions.json";
+
+                a.click();
+
+                URL.revokeObjectURL(url);
+
+                msg(
+                    "Positions exported"
+                );
+            }
+        );
+
+
+    // =====================================================
+    // IMPORT
+    // =====================================================
+
+    document
+        .getElementById("import")
+        .addEventListener(
+            "click",
+            () => importFile.click()
+        );
+
+
+    importFile.addEventListener(
+        "change",
+        e => {
+
+            const f =
+                e.target.files?.[0];
+
+            if (!f) {
+                return;
+            }
+
+            const r =
+                new FileReader();
+
+            r.onload = () => {
+
+                try {
+
+                    const d =
+                        JSON.parse(
+                            String(r.result)
+                        );
+
+                    const p =
+                        Array.isArray(d)
+                            ? d
+                            : d.positions;
+
+                    if (
+                        !Array.isArray(p) ||
+                        !p.every(
+                            row =>
+                                Array.isArray(row) &&
+                                row.length === 6
+                        )
+                    ) {
+                        throw new Error();
+                    }
+
+                    // Imported positions now use
+                    // -90 to +90 degrees
+                    saved =
+                        p.map(
+                            row =>
+                                row.map(
+                                    v =>
+                                        Math.max(
+                                            -90,
+                                            Math.min(
+                                                90,
+                                                +v
+                                            )
+                                        )
+                                )
+                        );
+
+                    count.textContent =
+                        String(saved.length);
+
+                    msg(
+                        `${saved.length} positions imported`
+                    );
+
+                } catch {
+
+                    msg(
+                        "Invalid positions file"
+                    );
+                }
+            };
+
+            r.readAsText(f);
+
+            e.target.value = "";
+        }
+    );
+
+
+    // =====================================================
+    // EXIT
+    // =====================================================
+
+    document
+        .getElementById("exit")
+        .addEventListener(
+            "click",
+            () => {
+
+                if (
+                    confirm(
+                        "Exit Robot Creator?"
+                    )
+                ) {
+                    window.close();
+                }
+            }
+        );
+
+
+    connection(false);
+
+})();

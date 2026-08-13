@@ -11,7 +11,42 @@
 
 
     // =====================================================
-    // CONNECT TO ARDUINO
+    // WEB JOINT -> ARDUINO COMMAND MAPPING
+    // =====================================================
+    //
+    // UI:
+    // 1 = Base
+    // 2 = Shoulder
+    // 3 = Elbow
+    // 4 = Wrist Roll
+    // 5 = Wrist Yaw
+    // 6 = Gripper
+    //
+    // TESTED PHYSICAL RESPONSE:
+    //
+    // Arduino 1 = Base
+    // Arduino 2 = Shoulder
+    // Arduino 4 = Elbow
+    // Arduino 6 = Wrist Yaw
+    // Arduino 5 = Gripper
+    //
+    // Wrist Roll is still unknown.
+    // We DISABLE it instead of allowing it to move
+    // the wrong motor.
+    // =====================================================
+
+    const JOINT_MAP = {
+        1: 1,       // BASE
+        2: 2,       // SHOULDER
+        3: 4,       // ELBOW
+        4: null,    // WRIST ROLL - not identified yet
+        5: 6,       // WRIST YAW
+        6: 5        // GRIPPER
+    };
+
+
+    // =====================================================
+    // CONNECT
     // =====================================================
 
     async function connectArduino() {
@@ -20,7 +55,8 @@
 
             let serialAPI;
 
-            // Android → WebUSB serial polyfill
+
+            // Android
             if (
                 /Android/i.test(navigator.userAgent) &&
                 window.androidSerial
@@ -34,7 +70,7 @@
 
             }
 
-            // Laptop/Desktop → normal Web Serial
+            // Laptop / desktop
             else if ("serial" in navigator) {
 
                 serialAPI = navigator.serial;
@@ -73,8 +109,7 @@
             window.emergencyStopped = false;
 
 
-            // Arduino Uno normally resets when
-            // serial connection is opened.
+            // Allow Arduino Uno to reset
             await new Promise(resolve => {
                 setTimeout(resolve, 1800);
             });
@@ -93,7 +128,6 @@
                 "Arduino connection failed:",
                 error
             );
-
 
             window.serialConnected = false;
 
@@ -115,24 +149,24 @@
 
 
     // =====================================================
-    // SEND INDIVIDUAL SERVO COMMAND
+    // SEND JOINT COMMAND
     //
-    // WEB APP:
+    // APPLICATION:
     //
-    // -90 = backward
-    //   0 = center
-    // +90 = forward
+    // -90° = reverse / left
+    //   0° = center
+    // +90° = forward / right
     //
     // ARDUINO:
     //
-    // -90 →   0
-    //   0 →  90
-    // +90 → 180
+    // -90° ->   0°
+    //   0° ->  90°
+    // +90° -> 180°
     //
     // =====================================================
 
     async function sendServoCommand(
-        servoNumber,
+        jointNumber,
         angle
     ) {
 
@@ -146,23 +180,42 @@
 
 
         // ---------------------------------------------
-        // SERVO NUMBER
+        // WEB JOINT NUMBER
         // ---------------------------------------------
 
-        const safeServo = Math.max(
+        const safeJoint = Math.max(
             1,
             Math.min(
                 6,
                 Math.round(
-                    Number(servoNumber)
+                    Number(jointNumber)
                 )
             )
         );
 
 
         // ---------------------------------------------
+        // FIND PHYSICAL ARDUINO COMMAND ID
+        // ---------------------------------------------
+
+        const arduinoServo =
+            JOINT_MAP[safeJoint];
+
+
+        // Wrist Roll is intentionally blocked until
+        // its real motor/channel is identified.
+        if (arduinoServo == null) {
+
+            console.warn(
+                "Wrist Roll is currently unassigned."
+            );
+
+            return false;
+        }
+
+
+        // ---------------------------------------------
         // APPLICATION ANGLE
-        // -90 → +90
         // ---------------------------------------------
 
         const appAngle = Math.max(
@@ -177,11 +230,7 @@
 
 
         // ---------------------------------------------
-        // CONVERT TO ARDUINO ANGLE
-        //
-        // -90 + 90 =   0
-        //   0 + 90 =  90
-        // +90 + 90 = 180
+        // -90..+90 -> 0..180
         // ---------------------------------------------
 
         const servoAngle =
@@ -189,18 +238,11 @@
 
 
         // ---------------------------------------------
-        // ONE JOINT → ONE SERVO
-        //
-        // Servo 1 = Base
-        // Servo 2 = Shoulder
-        // Servo 3 = Elbow
-        // Servo 4 = Wrist Roll
-        // Servo 5 = Wrist Yaw
-        // Servo 6 = Gripper
+        // SEND ONLY ONE COMMAND
         // ---------------------------------------------
 
         const command =
-            `${safeServo} ${servoAngle}\n`;
+            `${arduinoServo} ${servoAngle}\n`;
 
 
         writeQueue =
@@ -218,9 +260,10 @@
 
 
             console.log(
-                `Joint ${safeServo}: ` +
-                `${appAngle}° → ` +
-                `Servo ${servoAngle}°`
+                `UI Joint ${safeJoint}` +
+                ` -> Arduino ${arduinoServo}` +
+                ` | ${appAngle}°` +
+                ` -> ${servoAngle}°`
             );
 
 
@@ -296,7 +339,7 @@
 
 
     // =====================================================
-    // EXPOSE FUNCTIONS TO UI.JS
+    // EXPOSE FUNCTIONS
     // =====================================================
 
     window.connectArduino =

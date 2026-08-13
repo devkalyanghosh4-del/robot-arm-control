@@ -816,6 +816,17 @@ footer{
     src="./app.js">
 </script>
 
+<script type="module">
+    import { serial } from "https://cdn.jsdelivr.net/npm/web-serial-polyfill@1.0.15/dist/serial.js";
+
+    // Force the WebUSB serial implementation on Android.
+    // Desktop keeps using the browser's normal Web Serial.
+    if (/Android/i.test(navigator.userAgent) && "usb" in navigator) {
+        window.androidSerial = serial;
+        console.log("Android WebUSB serial enabled.");
+    }
+</script>
+
 <script src="./serial.js"></script>
 <script src="./ui.js"></script>
 

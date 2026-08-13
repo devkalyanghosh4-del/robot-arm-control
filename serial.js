@@ -10,16 +10,39 @@
     window.serialConnected = false;
 
     async function connectArduino() {
-        if (!("serial" in navigator)) {
-            alert(
-                "Web Serial is not supported. Use Google Chrome or Microsoft Edge on the laptop."
-            );
-
-            return false;
-        }
 
         try {
-            port = await navigator.serial.requestPort();
+
+            // Android:
+            // Prefer WebUSB serial polyfill.
+            // Laptop:
+            // Use normal Web Serial.
+            let serialAPI;
+
+            if (
+                /Android/i.test(navigator.userAgent) &&
+                window.androidSerial
+            ) {
+                serialAPI = window.androidSerial;
+
+                console.log(
+                    "Using WebUSB serial on Android."
+                );
+            } else if ("serial" in navigator) {
+                serialAPI = navigator.serial;
+
+                console.log(
+                    "Using native Web Serial."
+                );
+            } else {
+                alert(
+                    "USB serial is not supported by this browser."
+                );
+
+                return false;
+            }
+
+            port = await serialAPI.requestPort();
 
             await port.open({
                 baudRate: 9600,
@@ -34,16 +57,19 @@
             window.serialConnected = true;
             window.emergencyStopped = false;
 
-            // Arduino Uno usually resets when the serial port opens.
+            // Give Arduino time after connection
             await new Promise(resolve => {
                 setTimeout(resolve, 1800);
             });
 
-            console.log("Arduino connected at 9600 baud.");
+            console.log(
+                "Arduino connected at 9600 baud."
+            );
 
             return true;
 
         } catch (error) {
+
             console.error(
                 "Arduino connection failed:",
                 error
@@ -62,10 +88,12 @@
         }
     }
 
+
     async function sendServoCommand(
         servoNumber,
         angle
     ) {
+
         if (
             !writer ||
             !window.serialConnected ||
@@ -78,9 +106,7 @@
             1,
             Math.min(
                 6,
-                Math.round(
-                    Number(servoNumber)
-                )
+                Math.round(Number(servoNumber))
             )
         );
 
@@ -88,22 +114,26 @@
             0,
             Math.min(
                 180,
-                Math.round(
-                    Number(angle)
-                )
+                Math.round(Number(angle))
             )
         );
+
+        // Same format that worked
+        // in Serial USB Terminal:
+        // 1 90\n
 
         const command =
             `${safeServo} ${safeAngle}\n`;
 
         writeQueue = writeQueue.then(
-            () => writer.write(
-                encoder.encode(command)
-            )
+            () =>
+                writer.write(
+                    encoder.encode(command)
+                )
         );
 
         try {
+
             await writeQueue;
 
             console.log(
@@ -114,6 +144,7 @@
             return true;
 
         } catch (error) {
+
             console.error(
                 "Serial write failed:",
                 error
@@ -125,10 +156,13 @@
         }
     }
 
+
     async function disconnectArduino() {
+
         window.serialConnected = false;
 
         try {
+
             await writeQueue.catch(() => {});
 
             if (writer) {
@@ -141,9 +175,12 @@
                 port = null;
             }
 
-            console.log("Arduino disconnected.");
+            console.log(
+                "Arduino disconnected."
+            );
 
         } catch (error) {
+
             console.warn(
                 "Disconnect warning:",
                 error
@@ -151,7 +188,14 @@
         }
     }
 
-    window.connectArduino = connectArduino;
-    window.sendServoCommand = sendServoCommand;
-    window.disconnectArduino = disconnectArduino;
+
+    window.connectArduino =
+        connectArduino;
+
+    window.sendServoCommand =
+        sendServoCommand;
+
+    window.disconnectArduino =
+        disconnectArduino;
+
 })();

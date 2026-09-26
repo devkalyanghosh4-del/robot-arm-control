@@ -1,7 +1,7 @@
 (() => {
 "use strict";
 
-const JOINTS = ["BASE","SHOULDER","ELBOW","WRIST ROLL","WRIST YAW","GRIPPER"];
+const JOINTS = ["BASE","SHOULDER","ELBOW","GRIPPER"];
 const $ = id => document.getElementById(id);
 
 const jointColumn = $("joints");
@@ -32,11 +32,11 @@ let robotState = "IDLE";
 let activeProfile = "LAB";
 
 const PRESETS = {
-    HOME:  [0,0,0,0,0,0],
-    READY: [0,-10,15,0,0,-10],
-    PICK:  [0,-20,25,0,0,15],
-    PLACE: [25,-15,20,0,0,15],
-    REST:  [0,10,-10,0,0,-20]
+    HOME:  [0,0,0,0],
+    READY: [0,-10,15,-10],
+    PICK:  [0,-20,25,15],
+    PLACE: [25,-15,20,15],
+    REST:  [0,10,-10,-20]
 };
 
 const PROFILE_STORE_KEY = "robotCreatorV3Profiles";
@@ -65,6 +65,14 @@ function current() {
 
 function clonePose(p) {
     return p.map(Number);
+}
+
+// Converts any saved pose to 4 joints.
+// Old 6-joint poses keep Base, Shoulder, Elbow and Gripper.
+function toPose4(p) {
+    const a = Array.isArray(p) ? p.map(Number) : [];
+    if (a.length === 6) return [a[0], a[1], a[2], a[5]];
+    return JOINTS.map((_, i) => Number.isFinite(a[i]) ? a[i] : 0);
 }
 
 function setRobotState(next) {
@@ -147,7 +155,7 @@ async function moveTo(target, physical=true, label="TARGET") {
         if (stopped || window.emergencyStopped) break;
         const t = step / steps;
 
-        for (let i=0;i<6;i++) {
+        for (let i=0;i<JOINTS.length;i++) {
             const v = start[i] + (target[i] - start[i]) * t;
             await apply(i, v, physical, physical);
         }
@@ -198,6 +206,7 @@ function loadSettings() {
         operatorMode = data.operatorMode || operatorMode;
         speedPercent = Number(data.speedPercent ?? speedPercent);
         selectedJoint = Number(data.selectedJoint ?? selectedJoint);
+        if (!(selectedJoint >= 0 && selectedJoint < JOINTS.length)) selectedJoint = 0;
         jogStep = Number(data.jogStep ?? jogStep);
         loopCount = Number(data.loopCount ?? loopCount);
         activeProfile = data.activeProfile || activeProfile;
@@ -853,7 +862,7 @@ function createAdvancedUI() {
 
         <section class="advPane" data-pane="calibration">
             <div class="warningBox">
-                Wrist Roll is disabled by default until its physical command ID is identified. Use small test angles only.
+                4-DOF arm: Base, Shoulder, Elbow and Gripper. Use small test angles only.
             </div>
             <div id="calibrationGrid" class="advGrid" style="margin-top:10px"></div>
             <button id="saveCalibration" class="advButton green">SAVE CALIBRATION</button>
@@ -891,7 +900,7 @@ function createAdvancedUI() {
                     <h3>Hardware</h3>
                     <div class="advRow"><span>Controller</span><span class="statusValue">Arduino Uno</span></div>
                     <div class="advRow"><span>Servo Driver</span><span class="statusValue">PCA9685</span></div>
-                    <div class="advRow"><span>Joint Count</span><span class="statusValue">6</span></div>
+                    <div class="advRow"><span>Joint Count</span><span class="statusValue">4</span></div>
                 </div>
                 <div class="advCard">
                     <h3>Runtime</h3>
@@ -934,7 +943,7 @@ function createAdvancedUI() {
                 <div class="advCard">
                     <h3>Keyboard Shortcuts</h3>
                     <p style="font-size:12px;line-height:1.6">
-                    1–6: select joint<br>
+                    1–4: select joint<br>
                     ← / →: jog selected joint<br>
                     0: center selected joint<br>
                     Space: emergency stop<br>
@@ -1044,10 +1053,10 @@ function createAdvancedUI() {
 
     $("loadDemoSweep").onclick = () => {
         saved = [
-            namedStep("CENTER", [0,0,0,0,0,0], 350, 55),
-            namedStep("LEFT", [-25,-10,20,0,-20,-10], 350, 50),
-            namedStep("RIGHT", [25,-10,20,0,20,-10], 350, 50),
-            namedStep("CENTER", [0,0,0,0,0,0], 350, 55)
+            namedStep("CENTER", [0,0,0,0], 350, 55),
+            namedStep("LEFT", [-25,-10,20,-10], 350, 50),
+            namedStep("RIGHT", [25,-10,20,-10], 350, 50),
+            namedStep("CENTER", [0,0,0,0], 350, 55)
         ];
         updateSaved();
         robotLog("Demo sweep template loaded.");
@@ -1125,11 +1134,11 @@ function namedStep(name, angles, delay=500, speed=55) {
 
 function normalizeSavedEntry(entry, index) {
     if (Array.isArray(entry)) {
-        return namedStep(`P${index+1}`, entry, Number($("delay").value)||1000, speedPercent);
+        return namedStep(`P${index+1}`, toPose4(entry), Number($("delay").value)||1000, speedPercent);
     }
     return {
         name: String(entry.name || `P${index+1}`),
-        angles: clonePose(entry.angles || [0,0,0,0,0,0]),
+        angles: toPose4(entry.angles),
         delay: Math.max(0, Number(entry.delay ?? 500)),
         speed: Math.max(10, Math.min(100, Number(entry.speed ?? speedPercent)))
     };
@@ -1398,8 +1407,8 @@ function importProjectConfig(e) {
             if (Number.isFinite(Number(d.speedPercent))) speedPercent = Number(d.speedPercent);
             if (Number.isFinite(Number(d.loopCount))) loopCount = Number(d.loopCount);
             if (d.mode) mode = d.mode;
-            if (Array.isArray(d.currentPose) && d.currentPose.length === 6) {
-                await moveTo(d.currentPose, false, "IMPORTED POSE");
+            if (Array.isArray(d.currentPose) && (d.currentPose.length === 4 || d.currentPose.length === 6)) {
+                await moveTo(toPose4(d.currentPose), false, "IMPORTED POSE");
             }
             updateSaved();
             buildCalibrationUI();
@@ -1444,10 +1453,10 @@ async function loadProfile() {
     if (!p) return msg(`Profile ${name} is empty`);
 
     if (Array.isArray(p.calibration)) window.saveRobotCalibration?.(p.calibration);
-    if (Array.isArray(p.sequence)) saved = p.sequence;
+    if (Array.isArray(p.sequence)) saved = p.sequence.map(normalizeSavedEntry);
     if (Number.isFinite(Number(p.speedPercent))) speedPercent = Number(p.speedPercent);
     if (p.mode) setControlMode(p.mode);
-    if (Array.isArray(p.currentPose) && p.currentPose.length === 6) await moveTo(p.currentPose,false,`PROFILE ${name}`);
+    if (Array.isArray(p.currentPose) && (p.currentPose.length === 4 || p.currentPose.length === 6)) await moveTo(toPose4(p.currentPose),false,`PROFILE ${name}`);
 
     activeProfile = name;
     updateSaved();
@@ -1534,7 +1543,7 @@ $("exit").addEventListener("click", () => {
 document.addEventListener("keydown", async e => {
     if (["INPUT","SELECT","TEXTAREA"].includes(document.activeElement?.tagName)) return;
 
-    if (e.key >= "1" && e.key <= "6") {
+    if (e.key >= "1" && e.key <= "4") {
         selectedJoint = Number(e.key) - 1;
         updateSelectedJointUI();
         msg(`Selected ${JOINTS[selectedJoint]}`);
@@ -1586,5 +1595,4 @@ createAdvancedUI();
 connection(false);
 setRobotState("IDLE");
 robotLog("Robot Creator V3 initialized.");
-robotLog("Wrist Roll remains disabled until its physical command ID is calibrated.", "warn");
 })();

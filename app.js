@@ -683,91 +683,18 @@ forearmBlue.rotation.z = 0.18;
 joint3.add(forearmBlue);
 
 // ======================================================
-// JOINT 4 — WRIST PITCH
+// JOINT 4 — GRIPPER (mounted on the end of the forearm)
 // ======================================================
 
-const joint4 = new THREE.Group();
+const joint6 = new THREE.Group();
 
-joint4.position.set(
+joint6.position.set(
     0.58,
     3.06,
     0
 );
 
-joint3.add(joint4);
-
-const wristPitchMotor = cylinder(
-    0.58,
-    1.15,
-    blueMaterial,
-    48
-);
-
-wristPitchMotor.rotation.z = Math.PI / 2;
-
-joint4.add(wristPitchMotor);
-
-addMotorDisc(
-    joint4,
-    new THREE.Vector3(0.53, 0, 0),
-    0.4
-);
-
-const wristConnector = roundedBox(
-    0.62,
-    1.25,
-    0.67,
-    0.15,
-    whiteMaterial
-);
-
-wristConnector.position.y = 0.75;
-
-joint4.add(wristConnector);
-
-// ======================================================
-// JOINT 5 — WRIST ROTATION
-// ======================================================
-
-const joint5 = new THREE.Group();
-
-joint5.position.y = 1.42;
-
-joint4.add(joint5);
-
-const wristRotateMotor = cylinder(
-    0.47,
-    0.82,
-    blueMaterial,
-    48
-);
-
-joint5.add(wristRotateMotor);
-
-const wristRing = new THREE.Mesh(
-    new THREE.TorusGeometry(
-        0.39,
-        0.08,
-        16,
-        40
-    ),
-    metalMaterial
-);
-
-wristRing.rotation.x = Math.PI / 2;
-wristRing.position.y = 0.42;
-
-joint5.add(wristRing);
-
-// ======================================================
-// JOINT 6 — GRIPPER
-// ======================================================
-
-const joint6 = new THREE.Group();
-
-joint6.position.y = 0.58;
-
-joint5.add(joint6);
+joint3.add(joint6);
 
 const gripperMount = roundedBox(
     1.05,
@@ -881,8 +808,6 @@ window.robotAngles = [
     0,
     0,
     0,
-    0,
-    0,
     0
 ];
 
@@ -890,8 +815,6 @@ window.robotTargets = {
     base: 0,
     shoulder: -0.55,
     elbow: 1.05,
-    wristPitch: -0.45,
-    wristRotation: 0,
     gripperGap: 0.42
 };
 
@@ -908,7 +831,7 @@ window.setRobotJoint = function (
     if (
         !Number.isInteger(jointIndex) ||
         jointIndex < 0 ||
-        jointIndex > 5
+        jointIndex > 3
     ) {
         return;
     }
@@ -943,17 +866,6 @@ window.setRobotJoint = function (
                 );
             break;
         case 3:
-            window.robotTargets.wristPitch =
-                THREE.MathUtils.clamp(
-                    -angle - 0.45,
-                    -1.65,
-                    1.15
-                );
-            break;
-        case 4:
-            window.robotTargets.wristRotation = angle;
-            break;
-        case 5:
             window.robotTargets.gripperGap =
                 THREE.MathUtils.mapLinear(
                     value,
@@ -1113,18 +1025,6 @@ function animate() {
         joint3.rotation.z = smoothValue(
             joint3.rotation.z,
             window.robotTargets.elbow,
-            smoothing
-        );
-
-        joint4.rotation.z = smoothValue(
-            joint4.rotation.z,
-            window.robotTargets.wristPitch,
-            smoothing
-        );
-
-        joint5.rotation.y = smoothValue(
-            joint5.rotation.y,
-            window.robotTargets.wristRotation,
             smoothing
         );
 

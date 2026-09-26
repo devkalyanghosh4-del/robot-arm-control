@@ -20,12 +20,12 @@
         "Gripper"
     ];
 
-    // Known working command mapping from physical tests (4-DOF).
+    // Command IDs match robot_arm_pca9685.ino: 1 Base, 2 Shoulder, 3 Elbow, 4 Gripper.
     const DEFAULT_CALIBRATION = [
         { commandId: 1, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
         { commandId: 2, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
-        { commandId: 4, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
-        { commandId: 5, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true }
+        { commandId: 3, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
+        { commandId: 4, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true }
     ];
 
     // Old 6-joint calibration -> keep Base, Shoulder, Elbow, Gripper.
@@ -48,7 +48,7 @@
 
     function loadCalibration() {
         try {
-            const raw = localStorage.getItem("robotCreatorV3Calibration");
+            const raw = localStorage.getItem("robotCreatorV3Calibration4DOF");
             const parsed = toFourJoints(raw ? JSON.parse(raw) : null);
             if (Array.isArray(parsed) && parsed.length === 4) {
                 return parsed.map((x,i) => ({...defaults()[i], ...x}));
@@ -67,14 +67,14 @@
 
     function saveRobotCalibration(next) {
         calibration = defaults().map((d,i) => ({...d, ...(toFourJoints(next)[i] || {})}));
-        localStorage.setItem("robotCreatorV3Calibration", JSON.stringify(calibration));
+        localStorage.setItem("robotCreatorV3Calibration4DOF", JSON.stringify(calibration));
         window.dispatchEvent(new CustomEvent("robot-calibration-changed"));
         log("Calibration profile saved.");
     }
 
     function resetRobotCalibration() {
         calibration = defaults();
-        localStorage.setItem("robotCreatorV3Calibration", JSON.stringify(calibration));
+        localStorage.setItem("robotCreatorV3Calibration4DOF", JSON.stringify(calibration));
         window.dispatchEvent(new CustomEvent("robot-calibration-changed"));
         log("Calibration reset to defaults.", "warn");
     }

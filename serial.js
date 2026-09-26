@@ -17,21 +17,24 @@
         "Base",
         "Shoulder",
         "Elbow",
-        "Wrist Roll",
-        "Wrist Yaw",
         "Gripper"
     ];
 
-    // Known working command mapping from physical tests.
-    // Wrist Roll remains disabled until identified/calibrated.
+    // Known working command mapping from physical tests (4-DOF).
     const DEFAULT_CALIBRATION = [
         { commandId: 1, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
         { commandId: 2, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
         { commandId: 4, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
-        { commandId: null, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: false },
-        { commandId: 6, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
         { commandId: 5, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true }
     ];
+
+    // Old 6-joint calibration -> keep Base, Shoulder, Elbow, Gripper.
+    function toFourJoints(list) {
+        if (Array.isArray(list) && list.length === 6) {
+            return [list[0], list[1], list[2], list[5]];
+        }
+        return list;
+    }
 
     function defaults() {
         return DEFAULT_CALIBRATION.map(x => ({...x}));
@@ -46,8 +49,8 @@
     function loadCalibration() {
         try {
             const raw = localStorage.getItem("robotCreatorV3Calibration");
-            const parsed = raw ? JSON.parse(raw) : null;
-            if (Array.isArray(parsed) && parsed.length === 6) {
+            const parsed = toFourJoints(raw ? JSON.parse(raw) : null);
+            if (Array.isArray(parsed) && parsed.length === 4) {
                 return parsed.map((x,i) => ({...defaults()[i], ...x}));
             }
         } catch (e) {
@@ -63,7 +66,7 @@
     }
 
     function saveRobotCalibration(next) {
-        calibration = next.map((x,i) => ({...defaults()[i], ...x}));
+        calibration = defaults().map((d,i) => ({...d, ...(toFourJoints(next)[i] || {})}));
         localStorage.setItem("robotCreatorV3Calibration", JSON.stringify(calibration));
         window.dispatchEvent(new CustomEvent("robot-calibration-changed"));
         log("Calibration profile saved.");
@@ -154,7 +157,7 @@
     }
 
     async function sendServoCommand(jointNumber, angle) {
-        const joint = Math.max(1, Math.min(6, Math.round(Number(jointNumber))));
+        const joint = Math.max(1, Math.min(4, Math.round(Number(jointNumber))));
         const cfg = calibration[joint - 1];
 
         if (!cfg || !cfg.enabled || cfg.commandId == null) {

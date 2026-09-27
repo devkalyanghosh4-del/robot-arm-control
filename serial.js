@@ -25,7 +25,7 @@
         { commandId: 1, uiMin: 0, uiMax: 180, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
         { commandId: 2, uiMin: 0, uiMax: 180, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
         { commandId: 3, uiMin: 0, uiMax: 180, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
-        { commandId: 4, uiMin: 0, uiMax: 180, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true }
+        { commandId: 4, uiMin: 0, uiMax: 180, servoMin: 40, center: 90, servoMax: 140, reverse: false, enabled: true }
     ];
 
     // Old 6-joint calibration -> keep Base, Shoulder, Elbow, Gripper.
@@ -48,7 +48,7 @@
 
     function loadCalibration() {
         try {
-            const raw = localStorage.getItem("robotCreatorV3Calibration4DOF_0to180");
+            const raw = localStorage.getItem("robotCreatorV3Calibration4DOF_v3");
             const parsed = toFourJoints(raw ? JSON.parse(raw) : null);
             if (Array.isArray(parsed) && parsed.length === 4) {
                 return parsed.map((x,i) => ({...defaults()[i], ...x}));
@@ -67,14 +67,14 @@
 
     function saveRobotCalibration(next) {
         calibration = defaults().map((d,i) => ({...d, ...(toFourJoints(next)[i] || {})}));
-        localStorage.setItem("robotCreatorV3Calibration4DOF_0to180", JSON.stringify(calibration));
+        localStorage.setItem("robotCreatorV3Calibration4DOF_v3", JSON.stringify(calibration));
         window.dispatchEvent(new CustomEvent("robot-calibration-changed"));
         log("Calibration profile saved.");
     }
 
     function resetRobotCalibration() {
         calibration = defaults();
-        localStorage.setItem("robotCreatorV3Calibration4DOF_0to180", JSON.stringify(calibration));
+        localStorage.setItem("robotCreatorV3Calibration4DOF_v3", JSON.stringify(calibration));
         window.dispatchEvent(new CustomEvent("robot-calibration-changed"));
         log("Calibration reset to defaults.", "warn");
     }
@@ -108,7 +108,7 @@
             window.serialConnected = true;
             window.emergencyStopped = false;
 
-            await new Promise(resolve => setTimeout(resolve, 1800));
+            await new Promise(resolve => setTimeout(resolve, 2500));
 
             log(`Arduino connected at ${window.robotBaudRate} baud via ${window.robotTransport}.`);
             window.dispatchEvent(new CustomEvent("robot-connection-changed"));

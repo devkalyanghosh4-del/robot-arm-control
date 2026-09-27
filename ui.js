@@ -1471,6 +1471,14 @@ connect.addEventListener("click", async () => {
     const ok = await window.connectArduino?.();
     connection(!!ok);
     msg(ok ? "Arduino connected at 9600 baud" : "Arduino connection cancelled");
+
+    // Tell the arm where the sliders are, so the real arm and the app match.
+    if (ok) {
+        for (let i = 0; i < JOINTS.length; i++) {
+            await apply(i, Number(sliders[i].value), true, true);
+        }
+        robotLog("Arm synced to slider positions.");
+    }
 });
 
 disconnect.addEventListener("click", async () => {

@@ -741,6 +741,7 @@ function createSliders() {
         const v = b.querySelector(".value");
         sliders.push(s);
         values.push(v);
+        v.textContent = formatAngle(s.value);   // show the real start value (90.00)
         progress(s);
 
         s.addEventListener("pointerdown", pushUndo);

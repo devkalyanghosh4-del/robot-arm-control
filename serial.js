@@ -22,10 +22,10 @@
 
     // Command IDs match robot_arm_pca9685.ino: 1 Base, 2 Shoulder, 3 Elbow, 4 Gripper.
     const DEFAULT_CALIBRATION = [
-        { commandId: 1, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
-        { commandId: 2, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
-        { commandId: 3, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
-        { commandId: 4, uiMin: -90, uiMax: 90, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true }
+        { commandId: 1, uiMin: 0, uiMax: 180, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
+        { commandId: 2, uiMin: 0, uiMax: 180, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
+        { commandId: 3, uiMin: 0, uiMax: 180, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true },
+        { commandId: 4, uiMin: 0, uiMax: 180, servoMin: 0, center: 90, servoMax: 180, reverse: false, enabled: true }
     ];
 
     // Old 6-joint calibration -> keep Base, Shoulder, Elbow, Gripper.
@@ -48,7 +48,7 @@
 
     function loadCalibration() {
         try {
-            const raw = localStorage.getItem("robotCreatorV3Calibration4DOF");
+            const raw = localStorage.getItem("robotCreatorV3Calibration4DOF_0to180");
             const parsed = toFourJoints(raw ? JSON.parse(raw) : null);
             if (Array.isArray(parsed) && parsed.length === 4) {
                 return parsed.map((x,i) => ({...defaults()[i], ...x}));
@@ -67,14 +67,14 @@
 
     function saveRobotCalibration(next) {
         calibration = defaults().map((d,i) => ({...d, ...(toFourJoints(next)[i] || {})}));
-        localStorage.setItem("robotCreatorV3Calibration4DOF", JSON.stringify(calibration));
+        localStorage.setItem("robotCreatorV3Calibration4DOF_0to180", JSON.stringify(calibration));
         window.dispatchEvent(new CustomEvent("robot-calibration-changed"));
         log("Calibration profile saved.");
     }
 
     function resetRobotCalibration() {
         calibration = defaults();
-        localStorage.setItem("robotCreatorV3Calibration4DOF", JSON.stringify(calibration));
+        localStorage.setItem("robotCreatorV3Calibration4DOF_0to180", JSON.stringify(calibration));
         window.dispatchEvent(new CustomEvent("robot-calibration-changed"));
         log("Calibration reset to defaults.", "warn");
     }
@@ -125,29 +125,21 @@
         }
     }
 
+    // Slider value (0-180) -> servo angle (0-180). Straight 1:1 by default.
     function mapAngle(config, angle) {
-        const uiMin = Number(config.uiMin ?? -90);
-        const uiMax = Number(config.uiMax ?? 90);
+        const uiMin = Number(config.uiMin ?? 0);
+        const uiMax = Number(config.uiMax ?? 180);
         let appAngle = Math.max(uiMin, Math.min(uiMax, Number(angle)));
-
         const originalAppAngle = appAngle;
 
         if (config.reverse) {
-            appAngle = -appAngle;
+            appAngle = uiMin + uiMax - appAngle;
         }
 
-        const center = Number(config.center ?? 90);
         const servoMin = Number(config.servoMin ?? 0);
         const servoMax = Number(config.servoMax ?? 180);
-
-        let servoAngle;
-        if (appAngle <= 0) {
-            const t = (appAngle - uiMin) / (0 - uiMin || 1);
-            servoAngle = servoMin + t * (center - servoMin);
-        } else {
-            const t = appAngle / (uiMax || 1);
-            servoAngle = center + t * (servoMax - center);
-        }
+        const t = (appAngle - uiMin) / ((uiMax - uiMin) || 1);
+        const servoAngle = servoMin + t * (servoMax - servoMin);
 
         return {
             appAngle: Math.round(originalAppAngle),

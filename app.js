@@ -842,13 +842,16 @@ window.setRobotJoint = function (
         return;
     }
 
-    const value = THREE.MathUtils.clamp(
+    // Sliders use 0-180 (= servo angle). The model below works around
+    // its centre, so 90 on the slider is the model's middle position.
+    const sliderDegrees = THREE.MathUtils.clamp(
         Number(degrees),
-        -90,
-        90
+        0,
+        180
     );
 
-    window.robotAngles[jointIndex] = value;
+    window.robotAngles[jointIndex] = sliderDegrees;
+    const value = sliderDegrees - 90;
     const angle = THREE.MathUtils.degToRad(value);
 
     switch (jointIndex) {
@@ -883,6 +886,9 @@ window.setRobotJoint = function (
             break;
     }
 };
+
+// Start the model at the sliders' starting position (0 = HOME).
+window.robotAngles.forEach((_, i) => window.setRobotJoint(i, 0));
 
 // ======================================================
 // CAMERA CONTROLS

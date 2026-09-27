@@ -33,10 +33,10 @@ let activeProfile = "LAB";
 
 const PRESETS = {
     HOME:  [0,0,0,0],
-    READY: [0,-10,15,-10],
-    PICK:  [0,-20,25,15],
-    PLACE: [25,-15,20,15],
-    REST:  [0,10,-10,-20]
+    READY: [90,80,105,80],
+    PICK:  [90,70,115,105],
+    PLACE: [115,75,110,105],
+    REST:  [90,100,80,70]
 };
 
 const PROFILE_STORE_KEY = "robotCreatorV3Profiles";
@@ -51,7 +51,7 @@ function msg(text) {
 
 function formatAngle(v) {
     const n = Number(v);
-    return n > 0 ? `+${n.toFixed(2)}` : n.toFixed(2);
+    return n.toFixed(2);
 }
 
 function progress(s) {
@@ -123,8 +123,8 @@ function shouldSendPhysical(force=false) {
 
 async function apply(i, value, send=true, force=false) {
     const cfg = window.getRobotCalibration?.()?.[i];
-    const min = Number(cfg?.uiMin ?? -90);
-    const max = Number(cfg?.uiMax ?? 90);
+    const min = Number(cfg?.uiMin ?? 0);
+    const max = Number(cfg?.uiMax ?? 180);
     const v = Math.max(min, Math.min(max, Number(value)));
 
     sliders[i].value = String(v);
@@ -732,7 +732,7 @@ function createSliders() {
             <div class="shell">
                 <div class="value">0.00</div>
                 <div class="range">
-                    <input type="range" min="-90" max="90" step="1" value="0">
+                    <input type="range" min="0" max="180" step="1" value="0">
                 </div>
             </div>`;
         jointColumn.appendChild(b);
@@ -1053,10 +1053,10 @@ function createAdvancedUI() {
 
     $("loadDemoSweep").onclick = () => {
         saved = [
-            namedStep("CENTER", [0,0,0,0], 350, 55),
-            namedStep("LEFT", [-25,-10,20,-10], 350, 50),
-            namedStep("RIGHT", [25,-10,20,-10], 350, 50),
-            namedStep("CENTER", [0,0,0,0], 350, 55)
+            namedStep("CENTER", [90,90,90,90], 350, 55),
+            namedStep("LEFT", [65,80,110,80], 350, 50),
+            namedStep("RIGHT", [115,80,110,80], 350, 50),
+            namedStep("CENTER", [90,90,90,90], 350, 55)
         ];
         updateSaved();
         robotLog("Demo sweep template loaded.");
@@ -1288,22 +1288,22 @@ function buildCalibrationUI() {
                 ${[1,2,3,4,5,6].map(id=>`<option value="${id}" ${Number(cfg.commandId)===id?"selected":""}>${id}</option>`).join("")}
             </select>
         </div>
-        <div class="advRow"><span>UI Min</span><input class="calUiMin" type="number" min="-90" max="0" value="${cfg.uiMin ?? -90}"></div>
-        <div class="advRow"><span>UI Max</span><input class="calUiMax" type="number" min="0" max="90" value="${cfg.uiMax ?? 90}"></div>
+        <div class="advRow"><span>UI Min</span><input class="calUiMin" type="number" min="0" max="180" value="${cfg.uiMin ?? 0}"></div>
+        <div class="advRow"><span>UI Max</span><input class="calUiMax" type="number" min="0" max="180" value="${cfg.uiMax ?? 180}"></div>
         <div class="advRow"><span>Servo Min</span><input class="calServoMin" type="number" min="0" max="180" value="${cfg.servoMin ?? 0}"></div>
         <div class="advRow"><span>Center</span><input class="calCenter" type="number" min="0" max="180" value="${cfg.center ?? 90}"></div>
         <div class="advRow"><span>Servo Max</span><input class="calServoMax" type="number" min="0" max="180" value="${cfg.servoMax ?? 180}"></div>
         <div class="advRow"><span>Reverse</span><input class="calReverse" type="checkbox" ${cfg.reverse ? "checked":""}></div>
-        <button class="advButton calTestNeg">TEST −10°</button>
-        <button class="advButton calTestZero">TEST 0°</button>
-        <button class="advButton calTestPos">TEST +10°</button>
+        <button class="advButton calTestNeg">TEST 80°</button>
+        <button class="advButton calTestZero">TEST 90°</button>
+        <button class="advButton calTestPos">TEST 100°</button>
     </div>`).join("");
 
     grid.querySelectorAll(".calibrationCard").forEach(card => {
         const i = Number(card.dataset.joint);
-        card.querySelector(".calTestNeg").onclick = () => apply(i,-10,true,true);
-        card.querySelector(".calTestZero").onclick = () => apply(i,0,true,true);
-        card.querySelector(".calTestPos").onclick = () => apply(i,10,true,true);
+        card.querySelector(".calTestNeg").onclick = () => apply(i,80,true,true);
+        card.querySelector(".calTestZero").onclick = () => apply(i,90,true,true);
+        card.querySelector(".calTestPos").onclick = () => apply(i,100,true,true);
     });
 }
 
@@ -1333,7 +1333,7 @@ function buildLimitUI() {
     root.innerHTML = cal.map((cfg,i)=>`
         <div class="advRow">
             <span>${JOINTS[i]}</span>
-            <span class="statusValue">${cfg.uiMin ?? -90}° to ${cfg.uiMax ?? 90}°</span>
+            <span class="statusValue">${cfg.uiMin ?? 0}° to ${cfg.uiMax ?? 180}°</span>
         </div>`).join("");
 }
 
@@ -1345,7 +1345,7 @@ function updateTelemetry() {
     grid.innerHTML = JOINTS.map((name,i)=>{
         const cfg = cal[i] || {};
         const app = Number(sliders[i]?.value || 0);
-        const servo = Math.round(app + 90);
+        const servo = Math.round(app);
         return `
         <div class="telemetryCard">
             <strong>${name}</strong>
@@ -1353,7 +1353,7 @@ function updateTelemetry() {
             <div style="font-size:10px;margin-top:6px">Command ID: ${cfg.commandId ?? "—"}</div>
             <div style="font-size:10px">Servo target≈ ${servo}°</div>
             <div style="font-size:10px">Direction: ${cfg.reverse ? "REVERSED":"NORMAL"}</div>
-            <div style="font-size:10px">Limit: ${cfg.uiMin ?? -90}° / ${cfg.uiMax ?? 90}°</div>
+            <div style="font-size:10px">Limit: ${cfg.uiMin ?? 0}° / ${cfg.uiMax ?? 180}°</div>
             <div style="font-size:10px">Status: ${cfg.enabled && cfg.commandId != null ? "ACTIVE":"DISABLED"}</div>
         </div>`;
     }).join("");

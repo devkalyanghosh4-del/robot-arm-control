@@ -887,8 +887,8 @@ window.setRobotJoint = function (
     }
 };
 
-// Start the model at the sliders' starting position (0 = HOME).
-window.robotAngles.forEach((_, i) => window.setRobotJoint(i, 0));
+// Start the model at the sliders' starting position (90 = HOME, the middle).
+window.robotAngles.forEach((_, i) => window.setRobotJoint(i, 90));
 
 // ======================================================
 // CAMERA CONTROLS

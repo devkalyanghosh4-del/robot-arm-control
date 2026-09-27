@@ -32,7 +32,7 @@ let robotState = "IDLE";
 let activeProfile = "LAB";
 
 const PRESETS = {
-    HOME:  [0,0,0,0],
+    HOME:  [90,90,90,90],
     READY: [90,80,105,80],
     PICK:  [90,70,115,105],
     PLACE: [115,75,110,105],
@@ -732,7 +732,7 @@ function createSliders() {
             <div class="shell">
                 <div class="value">0.00</div>
                 <div class="range">
-                    <input type="range" min="0" max="180" step="1" value="0">
+                    <input type="range" min="0" max="180" step="1" value="90">
                 </div>
             </div>`;
         jointColumn.appendChild(b);
@@ -810,7 +810,7 @@ function createAdvancedUI() {
                     <div class="advRow"><span>Step</span><select id="jogStep"><option>1</option><option selected>5</option><option>10</option></select></div>
                     <div class="precisionPad">
                         <button id="jogMinus" class="advButton">−</button>
-                        <button id="jogZero" class="advButton">0°</button>
+                        <button id="jogZero" class="advButton">90°</button>
                         <button id="jogPlus" class="advButton">+</button>
                     </div>
                 </div>
@@ -1109,7 +1109,7 @@ async function jogSelected(delta) {
 
 async function jogToZero() {
     pushUndo();
-    await apply(selectedJoint, 0, true, true);
+    await apply(selectedJoint, 90, true, true);
 }
 
 async function undoPose() {

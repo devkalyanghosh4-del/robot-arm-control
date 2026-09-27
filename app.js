@@ -688,35 +688,41 @@ joint3.add(forearmBlue);
 
 const joint6 = new THREE.Group();
 
+// Sits exactly on the tip of the forearm and follows its angle,
+// so the gripper reads as part of the forearm (no wrist joint).
 joint6.position.set(
-    0.58,
-    3.06,
+    -0.27,
+    3.1,
     0
 );
 
+joint6.rotation.z = 0.18;
+
 joint3.add(joint6);
 
+// Slim end cap, same width/depth as the forearm
 const gripperMount = roundedBox(
-    1.05,
-    0.38,
-    0.58,
-    0.1,
+    0.94,
+    0.24,
+    0.85,
+    0.08,
     blueMaterial
 );
 
-gripperMount.position.y = 0.25;
+gripperMount.position.y = 0.12;
 
 joint6.add(gripperMount);
 
+// Gripper servo body
 const gripperCenter = roundedBox(
-    0.65,
-    0.62,
-    0.52,
-    0.11,
+    0.6,
+    0.5,
+    0.5,
+    0.1,
     blackMaterial
 );
 
-gripperCenter.position.y = 0.62;
+gripperCenter.position.y = 0.48;
 
 joint6.add(gripperCenter);
 
@@ -725,7 +731,7 @@ const leftJawGroup = new THREE.Group();
 
 leftJawGroup.position.set(
     -0.42,
-    0.62,
+    0.4,
     0
 );
 
@@ -764,7 +770,7 @@ const rightJawGroup = new THREE.Group();
 
 rightJawGroup.position.set(
     0.42,
-    0.62,
+    0.4,
     0
 );
 

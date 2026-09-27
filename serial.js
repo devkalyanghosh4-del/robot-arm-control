@@ -3,8 +3,52 @@
 
     let port = null;
     let writer = null;
+    let reader = null;
+    let readLoopDone = Promise.resolve();
     let writeQueue = Promise.resolve();
     const encoder = new TextEncoder();
+
+    // Set to true by the app once the arm has been synced after connecting.
+    // After that, an "ARM READY" message means the Arduino restarted by itself.
+    window.robotSyncReady = false;
+    window.robotArduinoRestarts = 0;
+
+    function handleArduinoLine(line) {
+        if (/ARM READY/i.test(line) || /^READY$/i.test(line)) {
+            if (window.robotSyncReady) {
+                window.robotArduinoRestarts++;
+                log(`Arduino restarted by itself (#${window.robotArduinoRestarts}) - usually a power dip from the servos. Restoring slider positions.`, "warn");
+                window.dispatchEvent(new CustomEvent("robot-arduino-restarted"));
+            }
+        }
+    }
+
+    // Reads messages from the Arduino in the background.
+    async function readLoop(p) {
+        if (!p || !p.readable) return;
+        const decoder = new TextDecoder();
+        let buffer = "";
+        try {
+            reader = p.readable.getReader();
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                let idx;
+                while ((idx = buffer.search(/[\r\n]/)) >= 0) {
+                    const line = buffer.slice(0, idx).trim();
+                    buffer = buffer.slice(idx + 1);
+                    if (line) handleArduinoLine(line);
+                }
+                if (buffer.length > 200) buffer = "";
+            }
+        } catch (error) {
+            console.warn("Serial read stopped:", error);
+        } finally {
+            try { reader?.releaseLock(); } catch (e) {}
+            reader = null;
+        }
+    }
 
     window.serialConnected = false;
     window.robotTransport = "—";
@@ -105,6 +149,8 @@
             });
 
             writer = port.writable.getWriter();
+            window.robotSyncReady = false;
+            readLoopDone = readLoop(port);
             window.serialConnected = true;
             window.emergencyStopped = false;
 
@@ -204,8 +250,13 @@
 
     async function disconnectArduino() {
         window.serialConnected = false;
+        window.robotSyncReady = false;
         try {
             await writeQueue.catch(() => {});
+            if (reader) {
+                try { await reader.cancel(); } catch (e) {}
+            }
+            await readLoopDone.catch(() => {});
             if (writer) {
                 writer.releaseLock();
                 writer = null;

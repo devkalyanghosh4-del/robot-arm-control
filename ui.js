@@ -1479,7 +1479,18 @@ connect.addEventListener("click", async () => {
             await apply(i, Number(sliders[i].value), true, true);
         }
         robotLog("Arm synced to slider positions.");
+        window.robotSyncReady = true;
     }
+});
+
+// If the Arduino restarts by itself (power dip), put the arm back
+// where the sliders are instead of leaving it at the start position.
+window.addEventListener("robot-arduino-restarted", async () => {
+    await new Promise(r => setTimeout(r, 300));
+    for (let i = 0; i < JOINTS.length; i++) {
+        await apply(i, Number(sliders[i].value), true, true);
+    }
+    msg(`Arduino restarted (${window.robotArduinoRestarts}x) - arm restored`);
 });
 
 disconnect.addEventListener("click", async () => {

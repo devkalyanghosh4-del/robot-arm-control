@@ -123,7 +123,6 @@
         log("Calibration reset to defaults.", "warn");
     }
 
-
     async function connectArduino() {
         try {
             let serialAPI;

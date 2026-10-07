@@ -787,7 +787,7 @@ function createAdvancedUI() {
     overlay.innerHTML = `
     <div id="advancedPanel">
         <div class="advHeader">
-            <h2>ROBOT CREATOR V3 — CONTROL & DIGITAL TWIN</h2>
+            <h2>ROBOT CREATOR V3 — CONTROL & DIGITAL TWIN <span style="font-size:0.6em;opacity:0.6">· BUILD 49</span></h2>
             <button id="advClose">CLOSE</button>
         </div>
         <div class="advTabs">

@@ -813,7 +813,7 @@ footer{
 
 <script
     type="module"
-    src="./app.js?v=45">
+    src="./app.js?v=47">
 </script>
 
 <script type="module">
@@ -823,7 +823,8 @@ footer{
     // use the CH340 driver built into serial.js.
     // Desktop keeps using the browser's normal Web Serial.
     const isAndroid = /Android/i.test(navigator.userAgent) ||
-        navigator.userAgentData?.platform === "Android";
+        navigator.userAgentData?.platform === "Android" ||
+        (/Linux/i.test(navigator.userAgent) && !/CrOS/i.test(navigator.userAgent) && navigator.maxTouchPoints > 0);
     if ("usb" in navigator && (isAndroid || !("serial" in navigator))) {
         window.androidSerial = webSerialPolyfill.serial;
         window.AndroidSerialPortClass = webSerialPolyfill.SerialPort;
@@ -831,8 +832,8 @@ footer{
     }
 </script>
 
-<script src="./serial.js?v=45"></script>
-<script src="./ui.js?v=45"></script>
+<script src="./serial.js?v=47"></script>
+<script src="./ui.js?v=47"></script>
 
 </body>
 </html>

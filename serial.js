@@ -139,6 +139,108 @@
         115200: [0xCC03, 0x0008]
     };
 
+    // Opens the device and claims an interface. If Android reports the
+    // interface is busy (left over from an earlier attempt), it resets the
+    // device and tries again.
+    async function openAndClaim(d, ifaceNums) {
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                if (!d.opened) await d.open();
+                if (d.configuration === null) await d.selectConfiguration(1);
+                for (const n of ifaceNums()) {
+                    const iface = d.configuration.interfaces.find(i => i.interfaceNumber === n);
+                    if (!iface || !iface.claimed) await d.claimInterface(n);
+                }
+                return;
+            } catch (e) {
+                log(`USB claim attempt ${attempt} failed: ${e.message}`, "warn");
+                if (attempt === 3) throw e;
+                try { await d.reset(); } catch (_) {}
+                try { await d.close(); } catch (_) {}
+                await new Promise(r => setTimeout(r, 400 * attempt));
+            }
+        }
+    }
+
+    function makeStreams(self, d) {
+        self.readable = new ReadableStream({
+            async pull(controller) {
+                while (!self.closed) {
+                    let r;
+                    try {
+                        r = await d.transferIn(self.inEp, 64);
+                    } catch (e) {
+                        if (!self.closed) controller.error(e);
+                        return;
+                    }
+                    if (r.data && r.data.byteLength) {
+                        controller.enqueue(new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength));
+                        return;
+                    }
+                }
+                controller.close();
+            },
+            cancel() { self.closed = true; }
+        });
+        self.writable = new WritableStream({
+            async write(chunk) {
+                const r = await d.transferOut(self.outEp, chunk);
+                if (r.status !== "ok") throw new Error("USB write failed");
+            }
+        });
+    }
+
+    // Standard USB-serial (CDC-ACM): genuine Arduinos, 16U2 clones,
+    // CH9102/CH343 and similar chips.
+    class CdcAcmPort {
+        constructor(device) {
+            this.device = device;
+            this.readable = null;
+            this.writable = null;
+            this.closed = false;
+        }
+
+        findInterfaces() {
+            const ifaces = this.device.configuration.interfaces;
+            const alt = i => i.alternate || i.alternates[0];
+            const data = ifaces.find(i => alt(i).interfaceClass === 10 &&
+                alt(i).endpoints.some(e => e.type === "bulk"));
+            const ctrl = ifaces.find(i => alt(i).interfaceClass === 2);
+            if (!data) throw new Error("No USB serial data interface found");
+            this.dataIface = data.interfaceNumber;
+            this.ctrlIface = ctrl ? ctrl.interfaceNumber : null;
+            const eps = alt(data).endpoints;
+            this.inEp  = eps.find(e => e.direction === "in"  && e.type === "bulk").endpointNumber;
+            this.outEp = eps.find(e => e.direction === "out" && e.type === "bulk").endpointNumber;
+        }
+
+        async open(options = {}) {
+            const d = this.device;
+            const baud = options.baudRate || 9600;
+            await openAndClaim(d, () => {
+                this.findInterfaces();
+                return this.ctrlIface === null ? [this.dataIface] : [this.ctrlIface, this.dataIface];
+            });
+
+            const ifaceIndex = this.ctrlIface ?? this.dataIface;
+            const coding = new Uint8Array([baud & 0xFF, (baud >> 8) & 0xFF, (baud >> 16) & 0xFF, (baud >> 24) & 0xFF, 0, 0, 8]);
+            try {
+                await d.controlTransferOut({ requestType: "class", recipient: "interface", request: 0x20, value: 0, index: ifaceIndex }, coding); // line coding
+                await d.controlTransferOut({ requestType: "class", recipient: "interface", request: 0x22, value: 0x03, index: ifaceIndex });        // DTR + RTS
+            } catch (e) {
+                log(`USB line setup warning: ${e.message}`, "warn");
+            }
+            makeStreams(this, d);
+        }
+
+        async close() {
+            this.closed = true;
+            try { await this.device.releaseInterface(this.dataIface); } catch (e) {}
+            if (this.ctrlIface !== null) { try { await this.device.releaseInterface(this.ctrlIface); } catch (e) {} }
+            try { await this.device.close(); } catch (e) {}
+        }
+    }
+
     class CH34xPort {
         constructor(device) {
             this.device = device;
@@ -172,9 +274,7 @@
         async open(options = {}) {
             const d = this.device;
             const baud = options.baudRate || 9600;
-            await d.open();
-            if (d.configuration === null) await d.selectConfiguration(1);
-            await d.claimInterface(0);
+            await openAndClaim(d, () => [0]);
 
             const eps = d.configuration.interfaces[0].alternate.endpoints;
             this.inEp  = eps.find(e => e.direction === "in"  && e.type === "bulk").endpointNumber;
@@ -190,33 +290,7 @@
             await this.setBaud(baud);
             await this.ctrlOut(0xA4, ~(0x20 | 0x40), 0); // DTR + RTS on
 
-            const self = this;
-            this.readable = new ReadableStream({
-                async pull(controller) {
-                    while (!self.closed) {
-                        let r;
-                        try {
-                            r = await d.transferIn(self.inEp, 64);
-                        } catch (e) {
-                            if (!self.closed) controller.error(e);
-                            return;
-                        }
-                        if (r.data && r.data.byteLength) {
-                            controller.enqueue(new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength));
-                            return;
-                        }
-                    }
-                    controller.close();
-                },
-                cancel() { self.closed = true; }
-            });
-
-            this.writable = new WritableStream({
-                async write(chunk) {
-                    const r = await d.transferOut(self.outEp, chunk);
-                    if (r.status !== "ok") throw new Error("CH340 write failed");
-                }
-            });
+            makeStreams(this, d);
         }
 
         async close() {
@@ -229,6 +303,11 @@
     // Android: list every USB device the phone can see, then pick the right driver.
     async function requestAndroidPort() {
         const device = await navigator.usb.requestDevice({ filters: [] });
+        const vid = device.vendorId.toString(16).padStart(4, "0").toUpperCase();
+        const pid = device.productId.toString(16).padStart(4, "0").toUpperCase();
+        window.robotUsbId = `${vid}:${pid}`;
+        log(`USB device selected: ${vid}:${pid} "${device.productName || "unknown"}"`);
+        if (device.opened) { try { await device.close(); } catch (e) {} }
 
         if (device.vendorId === CH34X_VENDOR) {
             window.robotTransport = "WebUSB (CH340)";
@@ -241,17 +320,20 @@
             (device.configuration?.interfaces || []).some(i =>
                 i.alternates?.some(a => a.interfaceClass === 2 || a.interfaceClass === 10));
 
-        if (isStandardSerial && window.AndroidSerialPortClass) {
-            window.robotTransport = "WebUSB Serial";
-            return new window.AndroidSerialPortClass(device);
+        if (isStandardSerial) {
+            window.robotTransport = "WebUSB (standard serial)";
+            return new CdcAcmPort(device);
         }
-        if (isStandardSerial && window.androidSerial) {
-            window.robotTransport = "WebUSB Serial";
-            return window.androidSerial.requestPort();
-        }
-        const vid = device.vendorId.toString(16).padStart(4, "0").toUpperCase();
-        const pid = device.productId.toString(16).padStart(4, "0").toUpperCase();
         throw new Error(`This USB chip is not supported yet (ID ${vid}:${pid}, "${device.productName || "unknown"}"). Send this ID to get it added.`);
+    }
+
+    // Android phones/tablets, including Chrome/Edge in "desktop site" mode,
+    // which hide "Android" and pretend to be a Linux PC.
+    function isAndroidLike() {
+        const ua = navigator.userAgent;
+        if (/Android/i.test(ua)) return true;
+        if (navigator.userAgentData?.platform === "Android") return true;
+        return /Linux/i.test(ua) && !/CrOS/i.test(ua) && navigator.maxTouchPoints > 0;
     }
 
     async function connectArduino() {
@@ -259,13 +341,23 @@
             // Use the USB driver on Android, including tablets in Chrome's
             // "desktop site" mode (which hides "Android"), and on any browser
             // that has WebUSB but no Web Serial.
-            const isAndroid = /Android/i.test(navigator.userAgent) ||
-                navigator.userAgentData?.platform === "Android";
-            if ("usb" in navigator && (isAndroid || !("serial" in navigator))) {
+            if ("usb" in navigator && (isAndroidLike() || !("serial" in navigator))) {
                 port = await requestAndroidPort();
             } else if ("serial" in navigator) {
                 window.robotTransport = "Web Serial";
-                port = await navigator.serial.requestPort();
+                try {
+                    port = await navigator.serial.requestPort();
+                } catch (e) {
+                    // Tablet browsers in "desktop site" mode can land here and
+                    // find nothing. If USB access exists, offer the USB driver.
+                    if (e.name === "NotFoundError" && "usb" in navigator &&
+                        navigator.maxTouchPoints > 0 &&
+                        confirm("No serial port selected. Try connecting with the tablet/phone USB driver instead?")) {
+                        port = await requestAndroidPort();
+                    } else {
+                        throw e;
+                    }
+                }
             } else {
                 alert("USB serial is not supported by this browser.");
                 return false;
@@ -296,7 +388,11 @@
             window.dispatchEvent(new CustomEvent("robot-connection-changed"));
             console.error(error);
             if (error.name !== "NotFoundError") {
-                alert("Arduino connection failed: " + (error.message || error));
+                const info = window.robotUsbId ? `\n\nUSB chip: ${window.robotUsbId}\nDriver: ${window.robotTransport}` : "";
+                const tip = /claim/i.test(String(error.message))
+                    ? "\n\nTip: close other tabs/apps using the Arduino, unplug it for 5 seconds, plug it back in and try again."
+                    : "";
+                alert("Arduino connection failed: " + (error.message || error) + info + tip);
             }
             return false;
         }

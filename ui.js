@@ -115,6 +115,15 @@ function updateHistoryButtons() {
     if (redoBtn) redoBtn.disabled = !redoStack.length;
 }
 
+function setOperatorMode(m) {
+    operatorMode = m;
+    const btn = document.getElementById("operatorModeBtn");
+    if (btn) {
+        btn.textContent = m;
+        btn.classList.toggle("accent", m === "AUTO");
+    }
+}
+
 function shouldSendPhysical(force=false) {
     if (mode === "SIMULATION") return false;
     if (force) return true;
@@ -203,7 +212,8 @@ function loadSettings() {
     try {
         const data = JSON.parse(localStorage.getItem(SETTINGS_STORE_KEY) || "{}");
         mode = data.mode || mode;
-        operatorMode = data.operatorMode || operatorMode;
+        // AUTO is only used during playback, so always start in MANUAL.
+        operatorMode = "MANUAL";
         speedPercent = Number(data.speedPercent ?? speedPercent);
         selectedJoint = Number(data.selectedJoint ?? selectedJoint);
         if (!(selectedJoint >= 0 && selectedJoint < JOINTS.length)) selectedJoint = 0;
@@ -745,7 +755,11 @@ function createSliders() {
         progress(s);
 
         s.addEventListener("pointerdown", pushUndo);
-        s.addEventListener("input", e => apply(i, e.target.value, true, false));
+        s.addEventListener("input", e => {
+            // Dragging a slider by hand is manual control, so make sure it reaches the arm.
+            if (!playing && operatorMode !== "MANUAL") setOperatorMode("MANUAL");
+            apply(i, e.target.value, true, false);
+        });
         s.addEventListener("focus", () => {
             selectedJoint = i;
             updateSelectedJointUI();
@@ -986,9 +1000,7 @@ function createAdvancedUI() {
     });
 
     $("operatorModeBtn").onclick = () => {
-        operatorMode = operatorMode === "MANUAL" ? "AUTO" : "MANUAL";
-        $("operatorModeBtn").textContent = operatorMode;
-        $("operatorModeBtn").classList.toggle("accent", operatorMode === "AUTO");
+        setOperatorMode(operatorMode === "MANUAL" ? "AUTO" : "MANUAL");
         saveSettings();
         robotLog(`Operator mode changed to ${operatorMode}.`);
     };
@@ -1164,9 +1176,7 @@ async function playSequence() {
     playing = true;
     stopped = false;
     window.emergencyStopped = false;
-    operatorMode = "AUTO";
-    $("operatorModeBtn").textContent = "AUTO";
-    $("operatorModeBtn").classList.add("accent");
+    setOperatorMode("AUTO");
     setRobotState("MOVING");
 
     robotLog(`Sequence started: ${saved.length} steps × ${loopCount} loop(s).`);
@@ -1187,9 +1197,7 @@ async function playSequence() {
     }
 
     playing = false;
-    operatorMode = "MANUAL";
-    $("operatorModeBtn").textContent = "MANUAL";
-    $("operatorModeBtn").classList.remove("accent");
+    setOperatorMode("MANUAL");
     sequenceStep = 0;
     updateSequenceProgress();
     setRobotState(stopped ? "PAUSED" : "IDLE");

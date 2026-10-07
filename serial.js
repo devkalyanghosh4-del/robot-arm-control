@@ -123,22 +123,148 @@
         log("Calibration reset to defaults.", "warn");
     }
 
+
+
+    // ================================================================
+    // CH340 / CH341 USB-serial driver over WebUSB (Arduino clones on
+    // Android phones). Behaves like a Web Serial port: open(),
+    // readable, writable, close().
+    // ================================================================
+    const CH34X_VENDOR = 0x1A86;
+    const CH34X_BAUD = {            // [reg 0x1312 value, reg 0x0F2C value]
+        9600:   [0xB202, 0x0013],
+        19200:  [0xD902, 0x000D],
+        38400:  [0x6403, 0x000A],
+        57600:  [0x9803, 0x0010],
+        115200: [0xCC03, 0x0008]
+    };
+
+    class CH34xPort {
+        constructor(device) {
+            this.device = device;
+            this.readable = null;
+            this.writable = null;
+            this.closed = false;
+        }
+
+        async ctrlOut(request, value, index) {
+            const r = await this.device.controlTransferOut({
+                requestType: "vendor", recipient: "device",
+                request, value: value & 0xFFFF, index: index & 0xFFFF
+            });
+            if (r.status !== "ok") throw new Error(`CH340 control 0x${request.toString(16)} failed`);
+        }
+
+        async ctrlIn(request, value, index, length) {
+            return this.device.controlTransferIn({
+                requestType: "vendor", recipient: "device",
+                request, value, index
+            }, length);
+        }
+
+        async setBaud(baud) {
+            const v = CH34X_BAUD[baud];
+            if (!v) throw new Error(`CH340: unsupported baud ${baud}`);
+            await this.ctrlOut(0x9A, 0x1312, v[0]);
+            await this.ctrlOut(0x9A, 0x0F2C, v[1]);
+        }
+
+        async open(options = {}) {
+            const d = this.device;
+            const baud = options.baudRate || 9600;
+            await d.open();
+            if (d.configuration === null) await d.selectConfiguration(1);
+            await d.claimInterface(0);
+
+            const eps = d.configuration.interfaces[0].alternate.endpoints;
+            this.inEp  = eps.find(e => e.direction === "in"  && e.type === "bulk").endpointNumber;
+            this.outEp = eps.find(e => e.direction === "out" && e.type === "bulk").endpointNumber;
+
+            await this.ctrlIn(0x5F, 0, 0, 2);          // read version
+            await this.ctrlOut(0xA1, 0, 0);            // serial init
+            await this.setBaud(baud);
+            await this.ctrlIn(0x95, 0x2518, 0, 2);
+            await this.ctrlOut(0x9A, 0x2518, 0x00C3);  // 8 data bits, RX+TX on
+            await this.ctrlIn(0x95, 0x0706, 0, 2);
+            await this.ctrlOut(0xA1, 0x501F, 0xD90A);
+            await this.setBaud(baud);
+            await this.ctrlOut(0xA4, ~(0x20 | 0x40), 0); // DTR + RTS on
+
+            const self = this;
+            this.readable = new ReadableStream({
+                async pull(controller) {
+                    while (!self.closed) {
+                        let r;
+                        try {
+                            r = await d.transferIn(self.inEp, 64);
+                        } catch (e) {
+                            if (!self.closed) controller.error(e);
+                            return;
+                        }
+                        if (r.data && r.data.byteLength) {
+                            controller.enqueue(new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength));
+                            return;
+                        }
+                    }
+                    controller.close();
+                },
+                cancel() { self.closed = true; }
+            });
+
+            this.writable = new WritableStream({
+                async write(chunk) {
+                    const r = await d.transferOut(self.outEp, chunk);
+                    if (r.status !== "ok") throw new Error("CH340 write failed");
+                }
+            });
+        }
+
+        async close() {
+            this.closed = true;
+            try { await this.device.releaseInterface(0); } catch (e) {}
+            try { await this.device.close(); } catch (e) {}
+        }
+    }
+
+    // Android: list every USB device the phone can see, then pick the right driver.
+    async function requestAndroidPort() {
+        const device = await navigator.usb.requestDevice({ filters: [] });
+
+        if (device.vendorId === CH34X_VENDOR) {
+            window.robotTransport = "WebUSB (CH340)";
+            return new CH34xPort(device);
+        }
+
+        const isStandardSerial =
+            device.vendorId === 0x2341 || device.vendorId === 0x2A03 ||
+            device.deviceClass === 2 ||
+            (device.configuration?.interfaces || []).some(i =>
+                i.alternates?.some(a => a.interfaceClass === 2 || a.interfaceClass === 10));
+
+        if (isStandardSerial && window.AndroidSerialPortClass) {
+            window.robotTransport = "WebUSB Serial";
+            return new window.AndroidSerialPortClass(device);
+        }
+        if (isStandardSerial && window.androidSerial) {
+            window.robotTransport = "WebUSB Serial";
+            return window.androidSerial.requestPort();
+        }
+        const vid = device.vendorId.toString(16).padStart(4, "0").toUpperCase();
+        const pid = device.productId.toString(16).padStart(4, "0").toUpperCase();
+        throw new Error(`This USB chip is not supported yet (ID ${vid}:${pid}, "${device.productName || "unknown"}"). Send this ID to get it added.`);
+    }
+
     async function connectArduino() {
         try {
-            let serialAPI;
-
-            if (/Android/i.test(navigator.userAgent) && window.androidSerial) {
-                serialAPI = window.androidSerial;
-                window.robotTransport = "WebUSB Serial";
+            if (/Android/i.test(navigator.userAgent) && "usb" in navigator) {
+                port = await requestAndroidPort();
             } else if ("serial" in navigator) {
-                serialAPI = navigator.serial;
                 window.robotTransport = "Web Serial";
+                port = await navigator.serial.requestPort();
             } else {
                 alert("USB serial is not supported by this browser.");
                 return false;
             }
-
-            port = await serialAPI.requestPort();
 
             await port.open({
                 baudRate: window.robotBaudRate,

@@ -813,7 +813,7 @@ footer{
 
 <script
     type="module"
-    src="./app.js?v=44">
+    src="./app.js?v=45">
 </script>
 
 <script type="module">
@@ -822,15 +822,17 @@ footer{
     // Android: genuine Arduinos use this WebUSB polyfill; CH340 clones
     // use the CH340 driver built into serial.js.
     // Desktop keeps using the browser's normal Web Serial.
-    if (/Android/i.test(navigator.userAgent) && "usb" in navigator) {
+    const isAndroid = /Android/i.test(navigator.userAgent) ||
+        navigator.userAgentData?.platform === "Android";
+    if ("usb" in navigator && (isAndroid || !("serial" in navigator))) {
         window.androidSerial = webSerialPolyfill.serial;
         window.AndroidSerialPortClass = webSerialPolyfill.SerialPort;
         console.log("Android WebUSB serial enabled.");
     }
 </script>
 
-<script src="./serial.js?v=44"></script>
-<script src="./ui.js?v=44"></script>
+<script src="./serial.js?v=45"></script>
+<script src="./ui.js?v=45"></script>
 
 </body>
 </html>

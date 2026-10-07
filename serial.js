@@ -256,7 +256,12 @@
 
     async function connectArduino() {
         try {
-            if (/Android/i.test(navigator.userAgent) && "usb" in navigator) {
+            // Use the USB driver on Android, including tablets in Chrome's
+            // "desktop site" mode (which hides "Android"), and on any browser
+            // that has WebUSB but no Web Serial.
+            const isAndroid = /Android/i.test(navigator.userAgent) ||
+                navigator.userAgentData?.platform === "Android";
+            if ("usb" in navigator && (isAndroid || !("serial" in navigator))) {
                 port = await requestAndroidPort();
             } else if ("serial" in navigator) {
                 window.robotTransport = "Web Serial";

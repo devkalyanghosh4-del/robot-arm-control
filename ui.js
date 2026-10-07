@@ -828,6 +828,7 @@ function createAdvancedUI() {
                         <button id="jogZero" class="advButton">90°</button>
                         <button id="jogPlus" class="advButton">+</button>
                     </div>
+                    <div class="advRow"><button id="checkArduino" class="advButton">CHECK ARDUINO</button></div>
                 </div>
 
                 <div class="advCard">
@@ -1025,6 +1026,11 @@ function createAdvancedUI() {
     $("jogMinus").onclick = () => jogSelected(-jogStep);
     $("jogPlus").onclick = () => jogSelected(jogStep);
     $("jogZero").onclick = () => jogToZero();
+    $("checkArduino").onclick = async () => {
+        robotLog("Asking the Arduino for its positions...");
+        await window.sendRawLine?.("pos");
+        msg("Asked the Arduino - see the log");
+    };
 
     document.querySelectorAll(".presetBtn").forEach(btn => {
         btn.onclick = async () => {
@@ -1488,6 +1494,8 @@ connect.addEventListener("click", async () => {
         }
         robotLog("Arm synced to slider positions.");
         window.robotSyncReady = true;
+        // Ask the Arduino what it received, so problems show up in the log.
+        setTimeout(() => window.sendRawLine?.("pos"), 1500);
     }
 });
 

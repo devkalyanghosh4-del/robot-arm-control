@@ -14,6 +14,12 @@
     window.robotArduinoRestarts = 0;
 
     function handleArduinoLine(line) {
+        const garbled = /[^\x20-\x7E]/.test(line);
+        if (garbled) {
+            log(`Arduino sent unreadable data (${line.length} chars) - the USB speed may not match. Driver: ${window.robotTransport}`, "warn");
+        } else {
+            log(`Arduino: ${line}`);
+        }
         if (/ARM READY/i.test(line) || /^READY$/i.test(line)) {
             if (window.robotSyncReady) {
                 window.robotArduinoRestarts++;
@@ -267,7 +273,8 @@
         async setBaud(baud) {
             const v = CH34X_BAUD[baud];
             if (!v) throw new Error(`CH340: unsupported baud ${baud}`);
-            await this.ctrlOut(0x9A, 0x1312, v[0]);
+            // Bit 7 = send received bytes immediately (as the Linux driver does)
+            await this.ctrlOut(0x9A, 0x1312, this.version > 0x27 ? (v[0] | 0x80) : v[0]);
             await this.ctrlOut(0x9A, 0x0F2C, v[1]);
         }
 
@@ -280,7 +287,9 @@
             this.inEp  = eps.find(e => e.direction === "in"  && e.type === "bulk").endpointNumber;
             this.outEp = eps.find(e => e.direction === "out" && e.type === "bulk").endpointNumber;
 
-            await this.ctrlIn(0x5F, 0, 0, 2);          // read version
+            const ver = await this.ctrlIn(0x5F, 0, 0, 2);   // read version
+            this.version = (ver && ver.data && ver.data.byteLength) ? ver.data.getUint8(0) : 0;
+            log(`CH340 chip version 0x${this.version.toString(16)}`);
             await this.ctrlOut(0xA1, 0, 0);            // serial init
             await this.setBaud(baud);
             await this.ctrlIn(0x95, 0x2518, 0, 2);
@@ -420,6 +429,17 @@
             servoAngle: Math.round(Math.max(0, Math.min(180, servoAngle)))
         };
     }
+
+    async function sendRawLine(text) {
+        if (!writer || !window.serialConnected) {
+            log("Arduino is not connected.", "warn");
+            return false;
+        }
+        writeQueue = writeQueue.then(() => writer.write(encoder.encode(text + "\n")));
+        try { await writeQueue; log(`Sent to Arduino: ${text}`); return true; }
+        catch (e) { log(`Send failed: ${e.message}`, "error"); return false; }
+    }
+    window.sendRawLine = sendRawLine;
 
     async function sendServoCommand(jointNumber, angle) {
         const joint = Math.max(1, Math.min(4, Math.round(Number(jointNumber))));

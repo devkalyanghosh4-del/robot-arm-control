@@ -320,6 +320,76 @@
         }
     }
 
+    // ================================================================
+    // CP2102 / CP210x USB-serial driver over WebUSB (most ESP32 boards).
+    // DTR/RTS stay OFF so the ESP32 is never reset or put in boot mode.
+    // ================================================================
+    const CP210X_VENDOR = 0x10C4;
+
+    class CP210xPort {
+        constructor(device) {
+            this.device = device;
+            this.readable = null;
+            this.writable = null;
+            this.closed = false;
+        }
+
+        async ctrlOut(request, value, data) {
+            const setup = { requestType: "vendor", recipient: "interface", request, value: value & 0xFFFF, index: this.iface };
+            const r = data ? await this.device.controlTransferOut(setup, data)
+                           : await this.device.controlTransferOut(setup);
+            if (r.status !== "ok") throw new Error(`CP210x control 0x${request.toString(16)} failed`);
+        }
+
+        async open(options = {}) {
+            const d = this.device;
+            const baud = options.baudRate || 9600;
+            await openAndClaim(d, () => {
+                this.iface = d.configuration.interfaces[0].interfaceNumber;
+                return [this.iface];
+            });
+            const alt = d.configuration.interfaces[0].alternate || d.configuration.interfaces[0].alternates[0];
+            this.inEp  = alt.endpoints.find(e => e.direction === "in"  && e.type === "bulk").endpointNumber;
+            this.outEp = alt.endpoints.find(e => e.direction === "out" && e.type === "bulk").endpointNumber;
+
+            await this.ctrlOut(0x00, 0x0001);                 // IFC_ENABLE
+            const b = new ArrayBuffer(4);
+            new DataView(b).setUint32(0, baud, true);
+            await this.ctrlOut(0x1E, 0, b);                   // SET_BAUDRATE
+            await this.ctrlOut(0x03, 0x0800);                 // 8 data bits, no parity, 1 stop
+            await this.ctrlOut(0x07, 0x0300);                 // DTR + RTS off (no ESP32 reset)
+            makeStreams(this, d);
+        }
+
+        async close() {
+            this.closed = true;
+            try { await this.ctrlOut(0x00, 0x0000); } catch (e) {}
+            try { await this.device.releaseInterface(this.iface); } catch (e) {}
+            try { await this.device.close(); } catch (e) {}
+        }
+    }
+
+    // Chooses the right USB driver for the board's USB chip.
+    function pickDriver(device) {
+        const isCdc = device.deviceClass === 2 ||
+            (device.configuration?.interfaces || []).some(i =>
+                (i.alternates || [i.alternate]).some(a => a && (a.interfaceClass === 2 || a.interfaceClass === 10)));
+
+        if (device.vendorId === CP210X_VENDOR) {                 // CP2102 (ESP32 boards)
+            window.robotTransport = "WebUSB (CP210x)";
+            return new CP210xPort(device);
+        }
+        if (device.vendorId === CH34X_VENDOR && !isCdc) {        // CH340 (Uno clones, some ESP32)
+            window.robotTransport = "WebUSB (CH340)";
+            return new CH34xPort(device);
+        }
+        if (isCdc || device.vendorId === 0x2341 || device.vendorId === 0x2A03) {
+            window.robotTransport = "WebUSB (standard serial)"; // CH9102/CH343, genuine Arduino
+            return new CdcAcmPort(device);
+        }
+        return null;
+    }
+
     // Android: list every USB device the phone can see, then pick the right driver.
     async function requestAndroidPort() {
         const device = await navigator.usb.requestDevice({ filters: [] });
@@ -329,21 +399,8 @@
         log(`USB device selected: ${vid}:${pid} "${device.productName || "unknown"}"`);
         if (device.opened) { try { await device.close(); } catch (e) {} }
 
-        if (device.vendorId === CH34X_VENDOR) {
-            window.robotTransport = "WebUSB (CH340)";
-            return new CH34xPort(device);
-        }
-
-        const isStandardSerial =
-            device.vendorId === 0x2341 || device.vendorId === 0x2A03 ||
-            device.deviceClass === 2 ||
-            (device.configuration?.interfaces || []).some(i =>
-                i.alternates?.some(a => a.interfaceClass === 2 || a.interfaceClass === 10));
-
-        if (isStandardSerial) {
-            window.robotTransport = "WebUSB (standard serial)";
-            return new CdcAcmPort(device);
-        }
+        const p = pickDriver(device);
+        if (p) return p;
         throw new Error(`This USB chip is not supported yet (ID ${vid}:${pid}, "${device.productName || "unknown"}"). Send this ID to get it added.`);
     }
 
@@ -396,12 +453,7 @@
     }
 
     function makePortFor(device) {
-        if (device.vendorId === CH34X_VENDOR) {
-            window.robotTransport = "WebUSB (CH340)";
-            return new CH34xPort(device);
-        }
-        window.robotTransport = "WebUSB (standard serial)";
-        return new CdcAcmPort(device);
+        return pickDriver(device) || new CdcAcmPort(device);
     }
 
     async function openPort(p, extra = {}) {
@@ -485,7 +537,7 @@
             try {
                 const p = await findSameDevice();
                 if (!p) throw new Error("Arduino not found - check the USB/OTG cable");
-                const quick = p instanceof CH34xPort;    // tablet: reconnect without restarting the Uno
+                const quick = p instanceof CH34xPort || p instanceof CP210xPort;  // tablet: reconnect without a restart
                 await openPort(p, { noReset: quick });
                 await sleep(quick ? 600 : 2500);         // laptop: the Uno restarts when the port opens
                 if (gen !== reconnectGen) return;      // the user connected again by hand

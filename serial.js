@@ -13,7 +13,11 @@
     window.robotSyncReady = false;
     window.robotArduinoRestarts = 0;
 
+    let lastRxTime = 0;          // last time anything arrived from the Arduino
+    let pongSeen = false;        // firmware v3.4+ answers "ping" with "PONG"
+
     function handleArduinoLine(line) {
+        if (line === "PONG") { pongSeen = true; return; }
         const garbled = /[^\x20-\x7E]/.test(line);
         if (garbled) {
             log(`Arduino sent unreadable data (${line.length} chars) - the USB speed may not match. Driver: ${window.robotTransport}`, "warn");
@@ -39,6 +43,7 @@
             while (true) {
                 const { value, done } = await reader.read();
                 if (done) break;
+                lastRxTime = Date.now();
                 buffer += decoder.decode(value, { stream: true });
                 let idx;
                 while ((idx = buffer.search(/[\r\n]/)) >= 0) {
@@ -53,6 +58,10 @@
         } finally {
             try { reader?.releaseLock(); } catch (e) {}
             reader = null;
+        }
+        // The link died without the user pressing DISCONNECT: reconnect.
+        if (!closing && window.serialConnected && !userDisconnected) {
+            connectionLost("USB read stopped");
         }
     }
 
@@ -297,7 +306,9 @@
             await this.ctrlIn(0x95, 0x0706, 0, 2);
             await this.ctrlOut(0xA1, 0x501F, 0xD90A);
             await this.setBaud(baud);
-            await this.ctrlOut(0xA4, ~(0x20 | 0x40), 0); // DTR + RTS on
+            // DTR + RTS on. When reconnecting, leave them off: turning DTR on
+            // restarts the Uno, and after a hiccup we want it to keep running.
+            await this.ctrlOut(0xA4, options.noReset ? ~0 : ~(0x20 | 0x40), 0);
 
             makeStreams(this, d);
         }
@@ -345,24 +356,283 @@
         return /Linux/i.test(ua) && !/CrOS/i.test(ua) && navigator.maxTouchPoints > 0;
     }
 
-    async function connectArduino() {
+    // ================================================================
+    // CONNECTION (build 51)
+    // - If the USB link drops or a write gets stuck, the app reconnects
+    //   to the same Arduino by itself (no device picker needed).
+    // - Slider commands are merged: only the newest angle per joint is
+    //   waiting to be sent, so a fast slider can never clog the link.
+    // - The ONLINE/OFFLINE label always shows the real state.
+    // ================================================================
+    let usbDevice = null;          // Android / tablet (WebUSB)
+    let serialPortObj = null;      // laptop (Web Serial)
+    let serialPortInfo = null;
+    let userDisconnected = true;
+    let reconnecting = false;
+    let reconnectGen = 0;
+    let closing = false;
+    const WRITE_TIMEOUT_MS = 2000;
+    const HEARTBEAT_MS = 2000;     // "ping" every 2 s to check the link
+    const SILENCE_LIMIT_MS = 7000; // no answer for 7 s = link is dead
+    window.robotReconnects = 0;
+
+    const pendingAngles = [null, null, null, null];
+    let nextJoint = 0;
+    const rawLines = [];
+    let pumpRunning = false;
+
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+    function withTimeout(promise, ms, message) {
+        let timer;
+        return Promise.race([
+            promise,
+            new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); })
+        ]).finally(() => clearTimeout(timer));
+    }
+
+    function connectionChanged() {
+        window.dispatchEvent(new CustomEvent("robot-connection-changed"));
+    }
+
+    function makePortFor(device) {
+        if (device.vendorId === CH34X_VENDOR) {
+            window.robotTransport = "WebUSB (CH340)";
+            return new CH34xPort(device);
+        }
+        window.robotTransport = "WebUSB (standard serial)";
+        return new CdcAcmPort(device);
+    }
+
+    async function openPort(p, extra = {}) {
+        await p.open({
+            ...extra,
+            baudRate: window.robotBaudRate,
+            dataBits: 8,
+            stopBits: 1,
+            parity: "none",
+            flowControl: "none"
+        });
+        port = p;
+        writer = p.writable.getWriter();
+        window.robotSyncReady = false;
+        readLoopDone = readLoop(p);
+        window.serialConnected = true;
+        lastRxTime = Date.now();
+        pongSeen = false;
+        keepScreenOn(true);
+    }
+
+    function failPending() {
+        for (let j = 0; j < pendingAngles.length; j++) {
+            if (pendingAngles[j]) { pendingAngles[j].resolve(false); pendingAngles[j] = null; }
+        }
+        while (rawLines.length) rawLines.shift().resolve(false);
+    }
+
+    async function closePort() {
+        closing = true;
+        window.serialConnected = false;
+        window.robotSyncReady = false;
+        const p = port, w = writer, r = reader;
+        port = null;
+        writer = null;
+        failPending();
+        try { if (r) await withTimeout(r.cancel(), 1000, "reader cancel timeout"); } catch (e) {}
+        await withTimeout(readLoopDone.catch(() => {}), 1000, "read loop timeout").catch(() => {});
+        try { if (w) { w.abort?.().catch(() => {}); w.releaseLock(); } } catch (e) {}
+        try { if (p) await withTimeout(p.close(), 2000, "close timeout"); } catch (e) {}
+        closing = false;
+        connectionChanged();
+    }
+
+    // Finds the same Arduino again (also after it was unplugged and plugged back in).
+    async function findSameDevice() {
+        if (usbDevice) {
+            const devices = await navigator.usb.getDevices();
+            const d = devices.find(x => x === usbDevice) ||
+                devices.find(x => x.vendorId === usbDevice.vendorId && x.productId === usbDevice.productId);
+            if (!d) return null;
+            usbDevice = d;
+            if (d.opened) { try { await d.close(); } catch (e) {} }
+            return makePortFor(d);
+        }
+        if (serialPortObj && "serial" in navigator) {
+            const ports = await navigator.serial.getPorts();
+            let sp = ports.find(x => x === serialPortObj);
+            if (!sp && serialPortInfo) {
+                sp = ports.find(x => {
+                    const i = x.getInfo();
+                    return i.usbVendorId === serialPortInfo.usbVendorId && i.usbProductId === serialPortInfo.usbProductId;
+                });
+            }
+            if (!sp) return null;
+            serialPortObj = sp;
+            return sp;
+        }
+        return null;
+    }
+
+    async function connectionLost(reason) {
+        if (reconnecting || userDisconnected || closing) return;
+        reconnecting = true;
+        const gen = ++reconnectGen;
+        log(`Connection to the Arduino lost (${reason}). Reconnecting automatically...`, "warn");
+        await closePort();
+
+        // Keeps trying until it works or the user taps DISCONNECT / CONNECT.
+        for (let attempt = 1; !userDisconnected && gen === reconnectGen; attempt++) {
+            try {
+                const p = await findSameDevice();
+                if (!p) throw new Error("Arduino not found - check the USB/OTG cable");
+                const quick = p instanceof CH34xPort;    // tablet: reconnect without restarting the Uno
+                await openPort(p, { noReset: quick });
+                await sleep(quick ? 600 : 2500);         // laptop: the Uno restarts when the port opens
+                if (gen !== reconnectGen) return;      // the user connected again by hand
+                if (!window.serialConnected) throw new Error("connection dropped again");
+                window.robotReconnects++;
+                reconnecting = false;
+                log(`Reconnected to the Arduino (attempt ${attempt}). Restoring slider positions.`, "warn");
+                connectionChanged();
+                window.dispatchEvent(new CustomEvent("robot-reconnected"));
+                return;
+            } catch (e) {
+                if (attempt === 1 || attempt % 15 === 0) {
+                    log(`Reconnect attempt ${attempt}: ${e.message || e}`, "warn");
+                }
+                if (gen !== reconnectGen) return;
+                if (port) await closePort();
+            }
+            if (attempt === 30) log("Still reconnecting... check the USB/OTG cable is pushed in firmly.", "error");
+            await sleep(attempt < 30 ? 1000 : 2000);
+        }
+        if (gen === reconnectGen) reconnecting = false;
+    }
+
+    // ---- keep the tablet awake while connected (a sleeping screen cuts USB) ----
+    let wakeLock = null;
+    async function keepScreenOn(on) {
         try {
+            if (on && !wakeLock && "wakeLock" in navigator && document.visibilityState === "visible") {
+                wakeLock = await navigator.wakeLock.request("screen");
+                wakeLock.addEventListener("release", () => { wakeLock = null; });
+            } else if (!on && wakeLock) {
+                await wakeLock.release();
+                wakeLock = null;
+            }
+        } catch (e) { /* not supported - ignore */ }
+    }
+
+    if (typeof document !== "undefined") {
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState !== "visible" || userDisconnected) return;
+            if (window.serialConnected) {
+                keepScreenOn(true);
+                lastRxTime = Date.now();          // don't count the time the app was hidden
+            } else if (!reconnecting) {
+                connectionLost("app came back to the screen");
+            }
+        });
+    }
+
+    // ---- heartbeat: finds a dead link even when no slider is moving ----
+    setInterval(() => {
+        if (!window.serialConnected || !writer || reconnecting || userDisconnected) return;
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        if (pongSeen && Date.now() - lastRxTime > SILENCE_LIMIT_MS) {
+            connectionLost("Arduino stopped answering");
+            return;
+        }
+        if (!rawLines.some(r => r.text === "ping\n")) {
+            rawLines.push({ text: "ping\n", resolve: () => {} });
+            pump();
+        }
+    }, HEARTBEAT_MS);
+
+    // Unplug / plug-in events
+    if ("usb" in navigator) {
+        navigator.usb.addEventListener("disconnect", e => {
+            if (usbDevice && e.device === usbDevice && window.serialConnected) connectionLost("USB cable unplugged");
+        });
+        navigator.usb.addEventListener("connect", () => {
+            if (usbDevice && !userDisconnected && !window.serialConnected && !reconnecting) connectionLost("USB cable plugged back in");
+        });
+    }
+    if ("serial" in navigator) {
+        navigator.serial.addEventListener("disconnect", e => {
+            if (serialPortObj && e.target === serialPortObj && window.serialConnected) connectionLost("USB cable unplugged");
+        });
+        navigator.serial.addEventListener("connect", () => {
+            if (serialPortObj && !userDisconnected && !window.serialConnected && !reconnecting) connectionLost("USB cable plugged back in");
+        });
+    }
+
+    async function pump() {
+        if (pumpRunning) return;
+        pumpRunning = true;
+        try {
+            while (window.serialConnected && writer) {
+                let item = null;
+                if (rawLines.length) {
+                    item = rawLines.shift();
+                } else {
+                    for (let k = 0; k < pendingAngles.length; k++) {
+                        const j = (nextJoint + k) % pendingAngles.length;
+                        if (pendingAngles[j]) {
+                            item = pendingAngles[j];
+                            pendingAngles[j] = null;
+                            nextJoint = (j + 1) % pendingAngles.length;
+                            break;
+                        }
+                    }
+                }
+                if (!item) break;
+                try {
+                    await withTimeout(writer.write(encoder.encode(item.text)), WRITE_TIMEOUT_MS,
+                        "USB write stuck for 2 seconds");
+                    item.onSent?.();
+                    item.resolve(true);
+                } catch (e) {
+                    item.resolve(false);
+                    window.robotFailedCommands++;
+                    log("Serial write failed: " + (e.message || e), "error");
+                    pumpRunning = false;
+                    connectionLost(e.message || String(e));
+                    return;
+                }
+            }
+        } finally {
+            pumpRunning = false;
+        }
+    }
+
+    async function connectArduino() {
+        if (reconnecting) {
+            reconnectGen++;                   // stop the automatic attempts, the user is choosing again
+            reconnecting = false;
+        }
+        if (window.serialConnected) await closePort();
+        try {
+            let p;
+            usbDevice = null;
+            serialPortObj = null;
+            serialPortInfo = null;
             // Use the USB driver on Android, including tablets in Chrome's
             // "desktop site" mode (which hides "Android"), and on any browser
             // that has WebUSB but no Web Serial.
             if ("usb" in navigator && (isAndroidLike() || !("serial" in navigator))) {
-                port = await requestAndroidPort();
+                p = await requestAndroidPort();
             } else if ("serial" in navigator) {
                 window.robotTransport = "Web Serial";
                 try {
-                    port = await navigator.serial.requestPort();
+                    p = await navigator.serial.requestPort();
                 } catch (e) {
                     // Tablet browsers in "desktop site" mode can land here and
                     // find nothing. If USB access exists, offer the USB driver.
                     if (e.name === "NotFoundError" && "usb" in navigator &&
                         navigator.maxTouchPoints > 0 &&
                         confirm("No serial port selected. Try connecting with the tablet/phone USB driver instead?")) {
-                        port = await requestAndroidPort();
+                        p = await requestAndroidPort();
                     } else {
                         throw e;
                     }
@@ -372,29 +642,26 @@
                 return false;
             }
 
-            await port.open({
-                baudRate: window.robotBaudRate,
-                dataBits: 8,
-                stopBits: 1,
-                parity: "none",
-                flowControl: "none"
-            });
+            if (p.device) {
+                usbDevice = p.device;
+            } else {
+                serialPortObj = p;
+                try { serialPortInfo = p.getInfo(); } catch (e) {}
+            }
 
-            writer = port.writable.getWriter();
-            window.robotSyncReady = false;
-            readLoopDone = readLoop(port);
-            window.serialConnected = true;
+            await openPort(p);
+            userDisconnected = false;
             window.emergencyStopped = false;
 
-            await new Promise(resolve => setTimeout(resolve, 2500));
+            await sleep(2500);
 
             log(`Arduino connected at ${window.robotBaudRate} baud via ${window.robotTransport}.`);
-            window.dispatchEvent(new CustomEvent("robot-connection-changed"));
+            connectionChanged();
             return true;
         } catch (error) {
             window.serialConnected = false;
             window.robotFailedCommands++;
-            window.dispatchEvent(new CustomEvent("robot-connection-changed"));
+            connectionChanged();
             console.error(error);
             if (error.name !== "NotFoundError") {
                 const info = window.robotUsbId ? `\n\nUSB chip: ${window.robotUsbId}\nDriver: ${window.robotTransport}` : "";
@@ -435,9 +702,12 @@
             log("Arduino is not connected.", "warn");
             return false;
         }
-        writeQueue = writeQueue.then(() => writer.write(encoder.encode(text + "\n")));
-        try { await writeQueue; log(`Sent to Arduino: ${text}`); return true; }
-        catch (e) { log(`Send failed: ${e.message}`, "error"); return false; }
+        const ok = await new Promise(resolve => {
+            rawLines.push({ text: text + "\n", resolve });
+            pump();
+        });
+        if (ok) log(`Sent to Arduino: ${text}`);
+        return ok;
     }
     window.sendRawLine = sendRawLine;
 
@@ -451,7 +721,7 @@
         }
 
         if (!writer || !window.serialConnected) {
-            log(`${JOINT_NAMES[joint-1]} simulated only: hardware is offline.`, "warn");
+            if (!reconnecting) log(`${JOINT_NAMES[joint-1]} not sent: Arduino is offline.`, "warn");
             return false;
         }
 
@@ -462,61 +732,47 @@
 
         const mapped = mapAngle(cfg, angle);
         const command = `${cfg.commandId} ${mapped.servoAngle}\n`;
+        const index = joint - 1;
 
-        writeQueue = writeQueue.then(() => writer.write(encoder.encode(command)));
-
-        try {
-            await writeQueue;
-            window.robotCommandCount++;
-
-            window.robotLastCommand = {
-                joint: JOINT_NAMES[joint-1],
-                jointNumber: joint,
-                commandId: cfg.commandId,
-                appAngle: mapped.appAngle,
-                effectiveAngle: mapped.effectiveAngle,
-                servoAngle: mapped.servoAngle,
-                time: new Date().toLocaleTimeString()
+        return new Promise(resolve => {
+            // A newer angle for the same joint replaces one that is still waiting.
+            if (pendingAngles[index]) pendingAngles[index].resolve(true);
+            pendingAngles[index] = {
+                text: command,
+                resolve,
+                onSent: () => {
+                    window.robotCommandCount++;
+                    window.robotLastCommand = {
+                        joint: JOINT_NAMES[joint-1],
+                        jointNumber: joint,
+                        commandId: cfg.commandId,
+                        appAngle: mapped.appAngle,
+                        effectiveAngle: mapped.effectiveAngle,
+                        servoAngle: mapped.servoAngle,
+                        time: new Date().toLocaleTimeString()
+                    };
+                    window.dispatchEvent(new CustomEvent("robot-command-sent", {
+                        detail: window.robotLastCommand
+                    }));
+                    log(`${JOINT_NAMES[joint-1]}: ${mapped.appAngle}° → ID ${cfg.commandId} → ${mapped.servoAngle}°`);
+                }
             };
-
-            window.dispatchEvent(new CustomEvent("robot-command-sent", {
-                detail: window.robotLastCommand
-            }));
-
-            log(
-                `${JOINT_NAMES[joint-1]}: ${mapped.appAngle}° → ID ${cfg.commandId} → ${mapped.servoAngle}°`
-            );
-            return true;
-        } catch (error) {
-            window.robotFailedCommands++;
-            log("Serial write failed: " + (error.message || error), "error");
-            await disconnectArduino();
-            return false;
-        }
+            pump();
+        });
     }
 
     async function disconnectArduino() {
-        window.serialConnected = false;
-        window.robotSyncReady = false;
+        userDisconnected = true;
+        reconnectGen++;
+        reconnecting = false;
+        keepScreenOn(false);
         try {
-            await writeQueue.catch(() => {});
-            if (reader) {
-                try { await reader.cancel(); } catch (e) {}
-            }
-            await readLoopDone.catch(() => {});
-            if (writer) {
-                writer.releaseLock();
-                writer = null;
-            }
-            if (port) {
-                await port.close();
-                port = null;
-            }
+            await closePort();
             log("Arduino disconnected.");
         } catch (error) {
             console.warn(error);
         }
-        window.dispatchEvent(new CustomEvent("robot-connection-changed"));
+        connectionChanged();
     }
 
     window.connectArduino = connectArduino;

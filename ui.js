@@ -94,6 +94,8 @@ function robotLog(message, level="info") {
             "logInfo";
         row.textContent = `[${stamp}] ${message}`;
         c.appendChild(row);
+        // Keep only the newest 300 lines so the page never slows down.
+        while (c.childElementCount > 300) c.removeChild(c.firstChild);
         c.scrollTop = c.scrollHeight;
     }
     console[level === "error" ? "error" : level === "warn" ? "warn" : "log"](message);
@@ -758,6 +760,8 @@ function createSliders() {
         s.addEventListener("input", e => {
             // Dragging a slider by hand is manual control, so make sure it reaches the arm.
             if (!playing && operatorMode !== "MANUAL") setOperatorMode("MANUAL");
+            // Moving a slider by hand releases an earlier emergency stop.
+            if (window.emergencyStopped) resumeRobot();
             apply(i, e.target.value, true, false);
         });
         s.addEventListener("focus", () => {
@@ -787,7 +791,7 @@ function createAdvancedUI() {
     overlay.innerHTML = `
     <div id="advancedPanel">
         <div class="advHeader">
-            <h2>ROBOT CREATOR V3 — CONTROL & DIGITAL TWIN <span style="font-size:0.6em;opacity:0.6">· BUILD 49</span></h2>
+            <h2>ROBOT CREATOR V3 — CONTROL & DIGITAL TWIN <span style="font-size:0.6em;opacity:0.6">· BUILD 53</span></h2>
             <button id="advClose">CLOSE</button>
         </div>
         <div class="advTabs">
@@ -1509,6 +1513,17 @@ window.addEventListener("robot-arduino-restarted", async () => {
     msg(`Arduino restarted (${window.robotArduinoRestarts}x) - arm restored`);
 });
 
+// The app reconnected by itself after the USB link dropped:
+// put the arm where the sliders are.
+window.addEventListener("robot-reconnected", async () => {
+    connection(true);
+    for (let i = 0; i < JOINTS.length; i++) {
+        await apply(i, Number(sliders[i].value), true, true);
+    }
+    window.robotSyncReady = true;
+    msg(`Arduino reconnected (${window.robotReconnects}x) - arm restored`);
+});
+
 disconnect.addEventListener("click", async () => {
     await window.disconnectArduino?.();
     connection(false);
@@ -1618,7 +1633,9 @@ window.addEventListener("robot-command-sent", () => {
     updateTelemetry();
     updateDiagnostics();
 });
-window.addEventListener("robot-connection-changed", updateDiagnostics);
+// Keep the ONLINE / OFFLINE label true at all times (also when the
+// cable drops and the app reconnects by itself).
+window.addEventListener("robot-connection-changed", () => connection(!!window.serialConnected));
 window.addEventListener("robot-calibration-changed", () => {
     buildCalibrationUI();
     buildLimitUI();

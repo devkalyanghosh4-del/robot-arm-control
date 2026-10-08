@@ -11,7 +11,7 @@ FILES TO REPLACE
 MAJOR FEATURES
 1. Manual and Auto operator modes
 2. Simulation / Hardware / Digital Twin control modes
-3. Four-joint (Base, Shoulder, Elbow, Gripper) -90° to +90° coordinate system
+3. Six-joint -90° to +90° coordinate system
 4. Per-joint calibration:
    - enable/disable
    - Arduino command ID
@@ -56,10 +56,18 @@ IMPORTANT PHYSICAL MAPPING
 Known from current tests:
 - Base -> Arduino command ID 1
 - Shoulder -> Arduino command ID 2
-- Elbow -> Arduino command ID 3
-- Gripper -> Arduino command ID 4
+- Elbow -> Arduino command ID 4
+- Wrist Yaw -> Arduino command ID 6
+- Gripper -> Arduino command ID 5
+- Wrist Roll -> UNKNOWN / DISABLED
 
-4-DOF build: the Wrist Roll and Wrist Yaw joints have been removed.
+Wrist Roll is intentionally blocked by default.
+When its physical command ID is identified:
+CONTROL CENTER -> CALIBRATION -> WRIST ROLL
+1. Enable it
+2. Select its Arduino ID
+3. Use TEST +/-10 degrees
+4. Save calibration
 
 SAFETY
 Always test physical joints with small values first.
@@ -67,7 +75,7 @@ Do not use full +/-90° travel until mechanical limits are confirmed.
 The software safety limits do not replace correct servo power, wiring, or mechanical stops.
 
 KEYBOARD SHORTCUTS
-1-4 = select joint
+1-6 = select joint
 Left/Right arrow = jog selected joint
 0 = center selected joint
 Space = emergency stop

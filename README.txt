@@ -13,13 +13,13 @@ ROBOT CREATOR V2
 The page includes:
 - Live 3D industrial robot
 - Mouse rotation and wheel zoom
-- Four joint controls (Base, Shoulder, Elbow, Gripper)
+- Six joint controls
 - Save/play/stop movements
 - Import/export positions
 - Home and reset
 - USB Arduino control at 9600 baud
 
 Power note:
-Do not power the servos from the Arduino 5V pin. Use an external 5-6V
+Do not power six servos from the Arduino 5V pin. Use an external 5-6V
 servo power supply and connect the external supply ground, PCA9685 ground,
 and Arduino ground together.

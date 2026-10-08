@@ -345,8 +345,72 @@
         return /Linux/i.test(ua) && !/CrOS/i.test(ua) && navigator.maxTouchPoints > 0;
     }
 
+    // ================================================================
+    // Wi-Fi link through the ESP32 bridge (WebSocket on port 81).
+    // Used automatically when the app is opened from the ESP32 itself.
+    // ================================================================
+    function isServedByEsp32() {
+        const h = location.hostname;
+        return location.protocol === "http:" && h !== "" &&
+            h !== "localhost" && h !== "127.0.0.1";
+    }
+
+    class WifiPort {
+        constructor(url) {
+            this.url = url;
+            this.ws = null;
+            this.readable = null;
+            this.writable = null;
+        }
+
+        open() {
+            return new Promise((resolve, reject) => {
+                let controller;
+                let opened = false;
+                const ws = new WebSocket(this.url);
+                this.ws = ws;
+
+                this.readable = new ReadableStream({
+                    start(c) { controller = c; },
+                    cancel() { try { ws.close(); } catch (e) {} }
+                });
+                this.writable = new WritableStream({
+                    write(chunk) {
+                        if (ws.readyState !== WebSocket.OPEN) throw new Error("Wi-Fi link to the arm is not open");
+                        ws.send(new TextDecoder().decode(chunk));
+                    }
+                });
+
+                ws.onopen = () => { opened = true; resolve(); };
+                ws.onmessage = e => {
+                    if (typeof e.data === "string") controller.enqueue(new TextEncoder().encode(e.data));
+                };
+                ws.onerror = () => {
+                    if (!opened) reject(new Error(`Could not reach the arm over Wi-Fi (${this.url}). Is the ESP32 on and are you on its network?`));
+                };
+                ws.onclose = () => {
+                    try { controller.close(); } catch (e) {}
+                    if (opened && window.serialConnected) {
+                        window.serialConnected = false;
+                        log("Wi-Fi connection to the arm was lost.", "warn");
+                        window.connection?.(false);
+                        window.dispatchEvent(new CustomEvent("robot-connection-changed"));
+                    }
+                };
+            });
+        }
+
+        async close() {
+            try { this.ws?.close(); } catch (e) {}
+        }
+    }
+
     async function connectArduino() {
         try {
+            if (isServedByEsp32()) {
+                window.robotTransport = "Wi-Fi (ESP32)";
+                port = new WifiPort(`ws://${location.hostname}:81/`);
+            } else
             // Use the USB driver on Android, including tablets in Chrome's
             // "desktop site" mode (which hides "Android"), and on any browser
             // that has WebUSB but no Web Serial.
@@ -386,7 +450,10 @@
             window.serialConnected = true;
             window.emergencyStopped = false;
 
-            await new Promise(resolve => setTimeout(resolve, 2500));
+            // USB connections restart the Arduino, so give it time to boot.
+            // Over Wi-Fi the Arduino keeps running, so a short pause is enough.
+            await new Promise(resolve => setTimeout(resolve,
+                window.robotTransport === "Wi-Fi (ESP32)" ? 300 : 2500));
 
             log(`Arduino connected at ${window.robotBaudRate} baud via ${window.robotTransport}.`);
             window.dispatchEvent(new CustomEvent("robot-connection-changed"));
